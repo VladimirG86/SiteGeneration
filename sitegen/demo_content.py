@@ -5,7 +5,10 @@
 """
 import re
 
-import niches
+try:
+    import niches
+except ModuleNotFoundError:
+    from sitegen import niches
 
 # «в Москве» (как в тексте) -> «Москва» (именительный, для подписей)
 CITY_NOM = {"Москве": "Москва", "Санкт-Петербурге": "Санкт-Петербург",
@@ -122,8 +125,25 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
     # ---------- hero ----------
     first = prod_lines[0]["name"] if prod_lines else bank["products"][0].lower()
     first_short = first if len(first) <= 42 else first[:40].rstrip(" .") + "…"
-    hero_title = f"{first_short[0].upper() + first_short[1:]} {city_in} — быстро и с гарантией".replace("  ", " ") \
-        if city_in else f"{first_short[0].upper() + first_short[1:]} — быстро и с гарантией"
+    # Try to use advantage for hero title benefit
+    benefit = ""
+    if advantages:
+        # pick advantage with numbers or guarantee
+        for adv in advantages:
+            if re.search(r"\d|гарант|минут|час|день", adv, re.I):
+                benefit = adv.strip()[:36]
+                break
+        if not benefit:
+            benefit = advantages[0].strip()[:36]
+    # Build hero title: benefit + city, not generic
+    if benefit:
+        hero_title = f"{first_short[0].upper() + first_short[1:]} — {benefit.lower()}"
+        if city_in and city_in not in hero_title:
+            hero_title += f" {city_in}"
+        hero_title = hero_title.replace("  ", " ").strip()[:70]
+    else:
+        hero_title = f"{first_short[0].upper() + first_short[1:]} {city_in} — быстро и с гарантией".replace("  ", " ") \
+            if city_in else f"{first_short[0].upper() + first_short[1:]} — быстро и с гарантией"
     about_short = about_text.rstrip(". ")
     if 25 < len(about_short) <= 170 and about_short.lower()[:12] != name.lower()[:12]:
         hero_sub = f"{name} — {about_short}. Работаем по договору, стоимость фиксируем до начала работ."
@@ -131,16 +151,34 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
         hero_sub = f"{about_short}. Работаем по договору, стоимость фиксируем до начала работ."
     else:
         hero_sub = f"{name}: работаем по договору, стоимость фиксируем до начала работ."
-    hero_stats = [{"value": "15 мин", "label": "отвечаем на заявку"},
-                  {"value": "1 год", "label": "гарантия по договору"},
-                  {"value": "0 ₽", "label": "диагностика перед работой"}]
+    # More concrete stats from advantages
+    hero_stats = []
+    # Try to extract numbers from advantages for stats
+    for adv in (advantages or [])[:3]:
+        m=re.search(r"(\d+\s*(?:лет|год|мес|дн|час|мин|%|₽|клиент|заказ|гарант))", adv, re.I)
+        if m:
+            hero_stats.append({"value": m.group(1).strip()[:16], "label": adv.strip()[:32]})
+        else:
+            # fallback generic but more specific
+            hero_stats.append({"value": adv.strip()[:16], "label": "преимущество"})
+    # Fill up to 3 with defaults if needed
+    defaults = [{"value": "15 мин", "label": "отвечаем на заявку"},
+                {"value": "1 год", "label": "гарантия по договору"},
+                {"value": "0 ₽", "label": "диагностика"}]
+    while len(hero_stats) < 3:
+        hero_stats.append(defaults[len(hero_stats)])
+    hero_stats=hero_stats[:3]
 
     # ---------- services ----------
     services_items = []
     for p in (prod_lines or [{"name": n, "price": ""} for n in bank["products"][:6]]):
+        # More concrete desc: use extra bullet if available
+        extra = ""
+        if extras:
+            extra = f" {extras[0]}." if len(extras[0]) < 40 else ""
         services_items.append({
             "name": p["name"],
-            "desc": f"{p['name']}: с предварительной диагностикой и честной сметой.",
+            "desc": f"{p['name']}: диагностика и смета до начала, фиксируем цену.{extra}",
             "price": p.get("price") or _price_from(a("Услуги/товары")),
         })
 
@@ -183,14 +221,16 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
 
     # ---------- reviews ----------
     first_service = services_items[0]["name"] if services_items else "Заказ"
+    # Try to make reviews more niche-specific
+    city_suffix = f" {city_in}" if city_in else ""
     reviews_items = [
-        {"name": "Мария Р.", "meta": f"{first_service}, июль 2026",
-         "text": f"Обратились в «{name}» по рекомендации. Смету дали до начала работ, "
+        {"name": "Мария Р.", "meta": f"{first_service}{city_suffix}, июль 2026",
+         "text": f"Обратились в «{name}» по рекомендации{city_suffix}. Смету дали до начала работ, "
                  "сделали в срок, цена не изменилась ни на рубль."},
-        {"name": "Олег Л.", "meta": "Повторный заказ, март 2026",
-         "text": "Понравилось, что держали в курсе каждый этап и присылали фото. "
+        {"name": "Олег Л.", "meta": f"Повторный заказ{city_suffix}, март 2026",
+         "text": f"Понравилось, что держали в курсе каждый этап{(' и присылали фото' if niche in ('build','auto') else '')}. "
                  "Вопросы решали сразу, без «завтра сделаем»."},
-        {"name": "Елена К.", "meta": "Срочный заказ, август 2026",
+        {"name": "Елена К.", "meta": f"Срочный заказ{city_suffix}, август 2026",
          "text": "Сначала сомневалась, но договор и фиксированная смета всё прояснили. "
                  "Результатом довольна, буду обращаться ещё."},
     ]
