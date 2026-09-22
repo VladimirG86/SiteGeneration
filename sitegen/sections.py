@@ -73,7 +73,7 @@ def header(site) -> str:
   <a class="logo" href="#"><span class="logo-mark">{initial}</span>{brand}</a>
   <nav class="nav" id="nav">{links}</nav>
   <a class="btn" href="#contacts">{esc(cta)}</a>
-  <button class="burger" aria-label="Меню" onclick="document.getElementById('nav').classList.toggle('open')">☰</button>
+  <button class="burger" aria-label="Меню" aria-controls="nav" aria-expanded="false" onclick="this.setAttribute('aria-expanded', document.getElementById('nav').classList.toggle('open').toString())">☰</button>
 </div></header>"""
 
 
@@ -265,8 +265,8 @@ def contacts(site, s, site_id: str = "demo") -> str:
         info += f"<div>{icon('map')}<span>{address}</span></div>"
     fields = s.get("fields") or ["name", "phone", "comment"]
     inputs = {
-        "name": ('<label>Ваше имя<input type="text" name="name" placeholder="Как к вам обращаться" required></label>'),
-        "phone": ('<label>Телефон<input type="tel" name="phone" placeholder="+7 (___) ___-__-__" required></label>'),
+        "name": ('<label>Ваше имя<input type="text" name="name" placeholder="Как к вам обращаться" autocomplete="name" required></label>'),
+        "phone": ('<label>Телефон<input type="tel" name="phone" placeholder="+7 (___) ___-__-__" autocomplete="tel" inputmode="tel" required></label>'),
         "comment": ('<label>Комментарий<textarea name="comment" rows="3" placeholder="Опишите задачу"></textarea></label>'),
     }
     form_html = "".join(inputs.get(f, "") for f in fields if f in inputs)
@@ -282,7 +282,7 @@ def contacts(site, s, site_id: str = "demo") -> str:
   <form class="form" id="lead-form" data-site="{esc(site_id)}">
     {form_html}
     <button class="btn" type="submit">Отправить заявку</button>
-    <div class="form-ok" id="form-ok">Спасибо! Заявка отправлена — мы свяжемся с вами.</div>
+    <div class="form-ok" id="form-ok" role="status" aria-live="polite">Спасибо! Заявка отправлена — мы свяжемся с вами.</div>
     <p style="font-size:12px;color:var(--muted);text-align:center">Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности</p>
   </form>
  </div>
@@ -511,8 +511,8 @@ def cart_markup(site, site_id: str) -> str:
   <div class="cart-items" id="cart-items"></div>
   <div class="cart-total" id="cart-total" hidden>Итого: <b>0 ₽</b></div>
   <form class="form cart-form" id="cart-form" hidden>
-    <label>Ваше имя<input type="text" name="name" placeholder="Как к вам обращаться" required></label>
-    <label>Телефон<input type="tel" name="phone" placeholder="+7 (___) ___-__-__" required></label>
+    <label>Ваше имя<input type="text" name="name" placeholder="Как к вам обращаться" autocomplete="name" required></label>
+    <label>Телефон<input type="tel" name="phone" placeholder="+7 (___) ___-__-__" autocomplete="tel" inputmode="tel" required></label>
     <button class="btn" type="submit">Оформить заказ</button>
     <p style="font-size:12px;color:var(--muted);text-align:center">Оплата после подтверждения — менеджер перезвонит</p>
   </form>
@@ -612,8 +612,9 @@ CART_JS = """
 
 
 def footer(site) -> str:
+    import datetime
     brand = esc(site.get("brand") or "")
-    year = 2026
+    year = datetime.datetime.now().year
     phone = esc(site.get("phone") or "")
     return f"""
 <footer class="ftr"><div class="wrap ftr-in">
