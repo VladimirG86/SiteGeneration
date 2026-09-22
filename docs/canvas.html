@@ -70,6 +70,7 @@ body{overflow:hidden}
   <div style="flex:1"></div>
   <div class="toolbar">
     <span class="hint2" id="canvas-id-badge" style="background:#fff;border:1px solid #E7E5F0;padding:6px 10px;border-radius:999px;font-weight:700"></span>
+    <span class="hint2" id="save-state" style="font-weight:600;color:#5B5FEF"></span>
     <button class="btn-sm" onclick="createNewCanvas()">+ Новый</button>
     <button class="btn-sm" onclick="listCanvases()">📋 Список</button>
     <div class="sep"></div>
@@ -186,13 +187,32 @@ const snapEl=document.getElementById('snap');
 function pushHist(){ const s=JSON.stringify(blocks); if(s===history[histPos]) return; history=history.slice(0,histPos+1); history.push(s); histPos++; if(history.length>50){history.shift(); histPos--;} }
 function undo(){ if(histPos>0){ histPos--; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↩️ Отменено'); } }
 function redo(){ if(histPos<history.length-1){ histPos++; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↪️ Повтор'); } }
+let _saveTimer=null, _savePending=false;
 function save(withHist=true){
   try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, canvasBg); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); }catch(e){}
   if(withHist) pushHist();
-  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})}).catch(()=>{});
+  // debounce server save ~400ms, coalesce rapid edits
+  _savePending=true;
+  const badge=document.getElementById('save-state');
+  if(badge) badge.textContent='● сохранение…';
+  if(_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{
+    _saveTimer=null;
+    if(!_savePending) return;
+    _savePending=false;
+    fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})})
+      .then(r=>{ if(!r.ok) throw new Error('save '+r.status); if(badge) badge.textContent='✓ сохранено'; setTimeout(()=>{ if(badge) badge.textContent=''; },1500); })
+      .catch(()=>{ if(badge) badge.textContent='⚠ ошибка'; });
+  }, 400);
   if(withHist) toast('Сохранено '+CANVAS_ID);
+}
+function saveNow(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
+  if(!_savePending) return;
+  _savePending=false;
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})}).catch(()=>{});
 }
 function uid(){return Math.random().toString(36).slice(2,8)}
 function snap(v){ return snapEl.checked ? Math.round(v/24)*24 : v; }
@@ -526,6 +546,7 @@ stage.addEventListener('pointerdown', e=>{ if(e.target===stage) {selected=null; 
 snapEl.addEventListener('change', ()=> stage.classList.toggle('snap', snapEl.checked));
 applyCanvasChrome();
 render(); pushHist();
+window.addEventListener('beforeunload', ()=>{ if(_savePending) saveNow(); });
 </script>
 </body>
 </html>
