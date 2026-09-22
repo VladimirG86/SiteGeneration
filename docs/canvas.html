@@ -154,15 +154,26 @@ let blocks = (Array.isArray(_lsBlocks) && _lsBlocks.length? _lsBlocks : null) ||
 document.addEventListener('DOMContentLoaded', ()=>{
   const badge=document.getElementById('canvas-id-badge');
   if(badge) badge.textContent='canvas:'+CANVAS_ID;
-  // try load from backend (overrides LS if exists on server)
+  // try load from backend (overrides LS if exists on server) + bg/h
   fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)).then(r=>r.json()).then(j=>{
     if(j && Array.isArray(j.blocks) && j.blocks.length){
       blocks=j.blocks;
+      if(j.bg) canvasBg=j.bg;
+      if(j.h) canvasH=parseInt(j.h,10)||canvasH;
       try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
+      try{ if(j.bg) localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, j.bg); }catch(e){}
+      try{ if(j.h) localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(j.h)); }catch(e){}
+      applyCanvasChrome();
       history=[JSON.stringify(blocks)]; histPos=0;
       render(); toast('Загружено '+CANVAS_ID+' ('+blocks.length+' блоков)');
-    } else if(j && j.blocks && !j.blocks.length && _lsBlocks && _lsBlocks.length){
-      // keep LS
+    } else {
+      // still apply chrome from fetched meta even if blocks empty
+      if(j && j.bg) { canvasBg=j.bg; }
+      if(j && j.h) { canvasH=parseInt(j.h,10)||canvasH; }
+      applyCanvasChrome();
+      if(j && j.blocks && !j.blocks.length && _lsBlocks && _lsBlocks.length){
+        // keep LS
+      }
     }
   }).catch(()=>{});
 });
@@ -177,8 +188,10 @@ function undo(){ if(histPos>0){ histPos--; blocks=JSON.parse(history[histPos]); 
 function redo(){ if(histPos<history.length-1){ histPos++; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↪️ Повтор'); } }
 function save(withHist=true){
   try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
+  try{ localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, canvasBg); }catch(e){}
+  try{ localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); }catch(e){}
   if(withHist) pushHist();
-  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})}).catch(()=>{});
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})}).catch(()=>{});
   if(withHist) toast('Сохранено '+CANVAS_ID);
 }
 function uid(){return Math.random().toString(36).slice(2,8)}

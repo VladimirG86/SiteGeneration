@@ -1090,6 +1090,8 @@ def canvas_editor():
 
 class CanvasIn(BaseModel):
     blocks: list = Field(default_factory=list)
+    bg: str | None = Field(default=None, max_length=20)
+    h: int | None = Field(default=None, ge=400, le=4000)
 
 _CANVAS_ALLOWED_TYPES = {"heading","text","button","image","form","divider"}
 _CANVAS_MAX_BLOCKS = 80
@@ -1138,6 +1140,22 @@ def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
     css = build_css(mode, accent)
     brand = site_prev.get("brand") or "Nelvi Canvas"
     esc=_canvas_esc
+    # canvas chrome: bg/h from site or from canvas file meta (stored in site_prev canvas_bg/h or data bg/h)
+    canvas_bg = site_prev.get("canvas_bg") or site_prev.get("bg") or "#ffffff"
+    canvas_h = site_prev.get("canvas_h") or site_prev.get("h") or 720
+    # try to read from canvas file directly if not in site_prev
+    try:
+        _p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+        if os.path.exists(_p):
+            import json as _jj
+            with open(_p, encoding="utf-8") as _ff:
+                _dd=_jj.load(_ff)
+                if isinstance(_dd, dict):
+                    if not site_prev.get("canvas_bg") and _dd.get("bg"):
+                        canvas_bg=_dd.get("bg")
+                    if not site_prev.get("canvas_h") and _dd.get("h"):
+                        canvas_h=_dd.get("h")
+    except: pass
     inner=""
     for b in sorted(blocks, key=lambda x: x.get("z",0)):
         x=b.get("x",0); y=b.get("y",0); w=b.get("w",100); h=b.get("h",40); z=b.get("z",1)
@@ -1159,10 +1177,21 @@ def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
             inner+=f'<div style="position:absolute;{s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>{esc(props.get("title","Форма"))}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>'
         elif t=="divider":
             inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#E7E5F0")};height:1px"></div>'
-    html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
+    # inject canvas chrome into wrap style
+    try: ch=int(canvas_h)
+    except: ch=720
+    if ch<400: ch=400
+    if ch>3000: ch=3000
+    bg_safe = canvas_bg if isinstance(canvas_bg, str) and re.fullmatch(r"#([0-9a-fA-F]{3,8})", canvas_bg) else "#ffffff"
+    html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:{ch}px;margin:40px auto;background:{bg_safe};border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
     site = site_prev or {"brand": brand, "kind": "canvas", "theme": theme, "sections": []}
     site["kind"]="canvas"
     site["canvas_blocks"]=blocks
+    # preserve canvas chrome
+    try:
+        if canvas_bg: site["canvas_bg"]=canvas_bg
+        if canvas_h: site["canvas_h"]=canvas_h
+    except: pass
     return html, site
 
 @app.get("/api/canvases")
@@ -1188,7 +1217,9 @@ def list_canvases():
                 with open(p, encoding="utf-8") as f:
                     data=json.load(f)
                     blocks=data.get("blocks",[]) if isinstance(data, dict) else []
-                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid))})
+                    bg=data.get("bg") if isinstance(data, dict) else None
+                    h=data.get("h") if isinstance(data, dict) else None
+                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid)), "bg": bg, "h": h})
             except: out.append({"id": jid, "blocks": 0})
         return {"canvases": out}
     except Exception as e:
@@ -1241,7 +1272,21 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
     if err:
         return JSONResponse({"error": err}, status_code=400)
     p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    # merge meta: if bg/h not provided, keep existing
+    bg = body.bg
+    h = body.h
+    # if not provided, try to keep old file's meta
+    if bg is None or h is None:
+        try:
+            if os.path.exists(p):
+                with open(p, encoding="utf-8") as _f:
+                    _old=json.load(_f)
+                    if bg is None: bg=_old.get("bg")
+                    if h is None: h=_old.get("h")
+        except: pass
     data = {"blocks": body.blocks}
+    if bg: data["bg"]=bg
+    if h: data["h"]=h
     try:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -1313,9 +1358,19 @@ def duplicate_canvas(job_id: str, request: Request):
             b["y"]=int(b.get("y",0))+16
             # ensure new ids for inner?
         except: pass
+    # also copy bg/h meta
+    bg=None; h=None
+    try:
+        if isinstance(data, dict):
+            bg=data.get("bg")
+            h=data.get("h")
+    except: pass
     np=os.path.join(CANVAS_DIR, f"canvas-{new_id}.json")
     try:
-        with open(np,"w",encoding="utf-8") as f: json.dump({"blocks": new_blocks}, f, ensure_ascii=False)
+        payload={"blocks": new_blocks}
+        if bg: payload["bg"]=bg
+        if h: payload["h"]=h
+        with open(np,"w",encoding="utf-8") as f: json.dump(payload, f, ensure_ascii=False)
         # duplicate site if exists
         site=generator.get_site_dict(job_id)
         if site and site.get("kind")=="canvas":
