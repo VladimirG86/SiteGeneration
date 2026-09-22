@@ -1,0 +1,8 @@
+.git/
+.github/
+sitegen/sites/
+sitegen/eval_reports/
+sitegen/tests/
+sitegen/__pycache__/
+sitegen/.env
+uploads/

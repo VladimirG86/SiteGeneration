@@ -14,6 +14,9 @@ sitegen/sites/*.html
 sitegen/sites/*.json
 sitegen/sites/assets/
 
+# --- eval-отчёты и скриншоты ---
+eval_reports/
+
 # --- окружение и ОС ---
 .venv/
 venv/

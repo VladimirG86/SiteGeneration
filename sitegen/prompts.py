@@ -206,3 +206,20 @@ def build_chips_messages(answers: dict):
         {"role": "user",
          "content": "Описание бизнеса:\n" + answers_text},
     ]
+
+
+JUDGE_RULES = """Ты — строгий редактор лендингов. Оцени сайт (JSON) по трём шкалам 1–5:
+concreteness — цифры, факты, город вместо воды; no_fluff — отсутствие клише
+(«высокое качество», «индивидуальный подход», «команда профессионалов» и т.п.);
+structure — логичный состав и порядок блоков, реалистичные цены в рублях.
+Верни ТОЛЬКО валидный JSON без markdown:
+{"scores": {"concreteness": 1-5, "no_fluff": 1-5, "structure": 1-5},
+ "verdict": "2-3 предложения по-русски: главная сила и главная слабость"}"""
+
+
+def build_judge_messages(site: dict):
+    import json
+    return [
+        {"role": "system", "content": JUDGE_RULES},
+        {"role": "user", "content": "САЙТ (JSON):\n" + json.dumps(site, ensure_ascii=False)},
+    ]

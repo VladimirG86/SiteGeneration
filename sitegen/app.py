@@ -2,20 +2,28 @@
 
 Запуск:
   uvicorn app:app --host 0.0.0.0 --port 8000
+  docker compose up --build   # прод-подобный стенд (см. README)
 
 Ключ RouterAI читается из .env (или переменных окружения) — см. llm.py.
 Без ключа работает демо-режим (demo_content.py).
 
 Защита (базовая, для прототипа):
-  — rate-limit по IP на генерацию/чат/анализ/заявки (память процесса);
-  — /api/leads закрывается токеном, если задан SITEGEN_ADMIN_TOKEN.
+  — rate-limit по IP на генерацию/чат/анализ/заявки/авторизацию;
+  — /api/leads закрывается токеном, если задан SITEGEN_ADMIN_TOKEN;
+  — id сайтов валидируются (защита от path traversal);
+  — вход по email-коду: SMTP (боевой) или демо-код на фронте.
 """
+import json
 import os
+import re
+import secrets
+import smtplib
 import threading
 import time
+from email.message import EmailMessage
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -27,7 +35,22 @@ import niches
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ADMIN_TOKEN = os.environ.get("SITEGEN_ADMIN_TOKEN", "").strip()
 
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or 587)
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
+SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@sborka.ai").strip()
+
+AUTH_CODE_TTL = 600       # код живёт 10 минут
+AUTH_RESEND_COOLDOWN = 44  # как таймер на фронте
+AUTH_MAX_FAILS = 5
+
 app = FastAPI(title="SiteGen prototype")
+
+
+def auth_enabled() -> bool:
+    return bool(SMTP_HOST and SMTP_USER and SMTP_PASS and SMTP_FROM)
+
 
 # ------------------------------------------------------- rate limiting ----
 
@@ -38,6 +61,7 @@ RATE_LIMITS = {
     "chat": (60, 3600),       # ИИ-правки — 60/час
     "analyze": (120, 3600),   # чипы-подсказки
     "lead": (120, 3600),      # заявки с сайтов
+    "auth": (30, 3600),       # email-коды
 }
 _RATE = {}
 _RATE_LOCK = threading.Lock()
@@ -62,6 +86,14 @@ def _too_many(bucket: str):
     return JSONResponse(
         {"error": f"Слишком много запросов ({bucket}). Подождите и попробуйте снова."},
         status_code=429)
+
+
+def _valid_job_id(job_id: str) -> bool:
+    return isinstance(job_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", job_id) is not None
+
+
+def _no_job():
+    return JSONResponse({"error": "job not found"}, status_code=404)
 
 
 # ------------------------------------------------------------------ схемы ---
@@ -94,6 +126,15 @@ class ChatIn(BaseModel):
     message: str = Field(min_length=2, max_length=1200)
 
 
+class AuthCodeIn(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+
+
+class AuthVerifyIn(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+    code: str = Field(min_length=6, max_length=6)
+
+
 # ------------------------------------------------------------------- api ----
 
 @app.get("/api/config")
@@ -104,6 +145,7 @@ def config():
         "model": llm.MODEL if llm.is_configured() else None,
         "editor": llm.is_configured(),
         "images": images.is_configured(),
+        "auth": auth_enabled(),
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
     }
@@ -155,14 +197,18 @@ def generate(body: GenerateIn, request: Request):
 
 @app.get("/api/job/{job_id}")
 def job_status(job_id: str):
+    if not _valid_job_id(job_id):
+        return _no_job()
     job = generator.get_job(job_id)
     if not job:
-        return JSONResponse({"error": "job not found"}, status_code=404)
+        return _no_job()
     return job
 
 
 @app.get("/api/site/{job_id}", response_class=HTMLResponse)
 def site_page(job_id: str):
+    if not _valid_job_id(job_id):
+        return HTMLResponse("<h1>Сайт не найден</h1>", status_code=404)
     html = generator.get_site_html(job_id)
     if not html:
         return HTMLResponse("<h1>Сайт ещё не готов</h1>", status_code=404)
@@ -175,6 +221,8 @@ def site_page(job_id: str):
 def chat_edit(job_id: str, body: ChatIn, request: Request):
     if _limited(request, "chat"):
         return _too_many("chat")
+    if not _valid_job_id(job_id):
+        return _no_job()
     if not llm.is_configured():
         return JSONResponse({"error": "Редактору нужен ключ RouterAI (.env)"}, status_code=503)
     try:
@@ -186,15 +234,47 @@ def chat_edit(job_id: str, body: ChatIn, request: Request):
     return result
 
 
+@app.get("/api/chat/stream/{job_id}")
+def chat_stream(job_id: str, request: Request, message: str = ""):
+    """SSE-поток правки (EventSource): start → progress* → done | error.
+
+    Между событиями — ping каждые ~15 c. Ошибка валидации — обычный JSON
+    с 4xx (фронт в этом случае откатывается на POST /api/chat).
+    """
+    if _limited(request, "chat"):
+        return _too_many("chat")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    msg = (message or "").strip()
+    if not (2 <= len(msg) <= 1200):
+        return JSONResponse({"error": "message: 2..1200 символов"}, status_code=400)
+    if generator.get_site_html(job_id) is None:
+        return _no_job()
+    if not llm.is_configured():
+        return JSONResponse({"error": "Редактору нужен ключ RouterAI (.env)"}, status_code=503)
+
+    def _gen():
+        for ev, data in generator.edit_site_stream(job_id, msg):
+            yield f"event: {ev}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/chat/progress/{job_id}")
 def chat_progress(job_id: str):
     """Прогресс долгой правки (генерация картинок). Фронт опрашивает,
     пока ждёт ответ /api/chat. Пустой объект — показывать нечего."""
+    if not _valid_job_id(job_id):
+        return {}
     return generator.get_progress(job_id)
 
 
 @app.post("/api/undo/{job_id}")
 def undo_edit(job_id: str):
+    if not _valid_job_id(job_id):
+        return _no_job()
     result = generator.undo(job_id)
     if "error" in result:
         return JSONResponse(result, status_code=400)
@@ -203,16 +283,39 @@ def undo_edit(job_id: str):
 
 # --------------------------------------------------------------- заявки -----
 
-_LEADS = {}
 _LEAD_LOCK = threading.Lock()
+
+
+def _leads_path(site_id: str):
+    if not _valid_job_id(site_id):
+        return None
+    return os.path.join(generator.SITES_DIR, f"{site_id}.leads.json")
+
+
+def _read_leads(site_id: str) -> list:
+    p = _leads_path(site_id)
+    if not p or not os.path.exists(p):
+        return []
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
 
 
 @app.post("/api/lead/{site_id}")
 def lead(site_id: str, body: LeadIn, request: Request):
     if _limited(request, "lead"):
         return _too_many("lead")
+    p = _leads_path(site_id)
+    if not p:
+        return JSONResponse({"error": "bad site id"}, status_code=400)
     with _LEAD_LOCK:
-        _LEADS.setdefault(site_id, []).append(body.model_dump())
+        leads = _read_leads(site_id)
+        leads.append(body.model_dump())
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(leads, f, ensure_ascii=False)
     tag = "CART" if body.type == "cart" else "LEAD"
     print(f"[{tag}] site={site_id} {body.model_dump()}")
     return {"ok": True}
@@ -224,8 +327,86 @@ def leads(site_id: str, request: Request):
         got = request.query_params.get("token") or request.headers.get("x-admin-token")
         if got != ADMIN_TOKEN:
             return JSONResponse({"error": "Нужен admin-токен"}, status_code=401)
+    if not _valid_job_id(site_id):
+        return JSONResponse({"error": "bad site id"}, status_code=400)
     with _LEAD_LOCK:
-        return _LEADS.get(site_id, [])
+        return _read_leads(site_id)
+
+
+# ----------------------------------------------------------- авторизация ----
+
+_AUTH_CODES = {}  # email -> {"code","exp","sent","fails"}
+_AUTH_LOCK = threading.Lock()
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
+
+
+def _send_code_email(to_email: str, code: str):
+    msg = EmailMessage()
+    msg["Subject"] = f"Ваш код для СБОРКА: {code}"
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_email
+    msg.set_content(
+        f"Код для создания сайта: {code}\n\n"
+        f"Действует {AUTH_CODE_TTL // 60} минут. "
+        f"Если вы не запрашивали код — проигнорируйте письмо.")
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
+
+@app.post("/api/auth/code")
+def auth_code(body: AuthCodeIn, request: Request):
+    """Отправить 6-значный код на email. Без SMTP — 503 (фронт уйдёт в демо)."""
+    if _limited(request, "auth"):
+        return _too_many("auth")
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        return JSONResponse({"error": "Похоже, в адресе почты ошибка"}, status_code=400)
+    if not auth_enabled():
+        return JSONResponse({"error": "SMTP не настроен — доступен только демо-режим"},
+                            status_code=503)
+    now = time.time()
+    with _AUTH_LOCK:
+        prev = _AUTH_CODES.get(email)
+        if prev and now - prev["sent"] < AUTH_RESEND_COOLDOWN:
+            wait = int(AUTH_RESEND_COOLDOWN - (now - prev["sent"]))
+            return JSONResponse({"error": "Код уже отправлен", "retry_after": wait},
+                                status_code=429)
+    code = f"{secrets.randbelow(900000) + 100000}"
+    try:
+        _send_code_email(email, code)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"Не удалось отправить письмо: {e}"}, status_code=502)
+    with _AUTH_LOCK:
+        _AUTH_CODES[email] = {"code": code, "exp": now + AUTH_CODE_TTL,
+                              "sent": now, "fails": 0}
+    return {"ok": True, "cooldown": AUTH_RESEND_COOLDOWN}
+
+
+@app.post("/api/auth/verify")
+def auth_verify(body: AuthVerifyIn, request: Request):
+    """Проверить код. Без SMTP — 503."""
+    if _limited(request, "auth"):
+        return _too_many("auth")
+    email = body.email.strip().lower()
+    if not auth_enabled():
+        return JSONResponse({"error": "SMTP не настроен — доступен только демо-режим"},
+                            status_code=503)
+    now = time.time()
+    with _AUTH_LOCK:
+        rec = _AUTH_CODES.get(email)
+        if not rec or now > rec["exp"]:
+            return JSONResponse({"error": "Код не найден или истёк — запросите новый"},
+                                status_code=400)
+        if rec["fails"] >= AUTH_MAX_FAILS:
+            return JSONResponse({"error": "Слишком много попыток — запросите новый код"},
+                                status_code=429)
+        if not secrets.compare_digest(body.code.strip(), rec["code"]):
+            rec["fails"] += 1
+            return JSONResponse({"error": "Неверный код"}, status_code=400)
+        del _AUTH_CODES[email]
+    return {"ok": True}
 
 
 # --------------------------------------------------------------- static ----
@@ -241,3 +422,5 @@ def index():
 if not ADMIN_TOKEN:
     print("[WARN] SITEGEN_ADMIN_TOKEN не задан — /api/leads открыт всем. "
           "Для публичного стенда задайте токен в .env")
+if not auth_enabled():
+    print("[INFO] SMTP не настроен — вход по email-коду работает в демо-режиме")

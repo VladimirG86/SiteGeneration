@@ -96,7 +96,8 @@ export SITEGEN_MODEL_FAST="deepseek/deepseek-v4-pro-0813"  # подсказки-
 ```
 static/  — SPA-мастер + ИИ-редактор (vanilla JS, без зависимостей)
 app.py   — FastAPI: /api/analyze · /api/generate · /api/job · /api/site
-                               /api/chat/{id} · /api/undo/{id} · /api/lead(s)
+                               /api/chat/{id} · /api/chat/stream/{id} (SSE) · /api/undo/{id}
+                               /api/lead(s) · /api/auth/code · /api/auth/verify
 generator.py — пайплайн 5 этапов, версии правок (undo), история чата
 chat.py      — ГЛАВНЫЙ ФАЙЛ РЕДАКТОРА: промпт агента, 10 операций,
                id-адресация секций, sanitize/normalize (белые списки, лимиты) —
@@ -162,6 +163,40 @@ python3 -m pytest tests/ -q   # 31 тест: ниши, редактор, дем�
   `{"stage": "images", "target": "products", "done": 3, "total": 6}`;
   фронт опрашивает его, пока ждёт синхронный `/api/chat`.
 - История чата персистентна (`{id}.chat.json`) — переживает рестарт сервера.
+
+## Realtime-правки (SSE)
+
+`GET /api/chat/stream/{id}?message=...` (EventSource): события `start` →
+`progress` (`{stage, done, total, target}` на этапе картинок) → `done`
+(тот же JSON, что у POST `/api/chat`) или `error`; каждые ~15 с простоя —
+`ping`. Фронт использует SSE, при обрыве молча откатывается на POST + опрос
+`GET /api/chat/progress/{id}`.
+
+## Оценка качества (eval)
+
+```bash
+python eval.py                  # офлайн: 11 ниш, структурные метрики
+python eval.py --judge           # + LLM-судья (concreteness/no_fluff/structure 1–5)
+python eval.py --shots           # + скриншоты (нужен playwright + chromium)
+```
+
+Метрики: порядок секций, длина H1, детектор 10 клише, цены с цифрами,
+число FAQ, форма заявки, уникальность якорей. Отчёт — `eval_reports/report.md`.
+Демо-контент детерминирован: eval ловит регрессии рендера и промптов.
+
+## Docker и прод-фундамент
+
+```bash
+cp sitegen/.env.example .env   # вписать ключи
+docker compose up --build      # http://localhost:8000
+```
+
+- Данные (`SITEGEN_DATA_DIR`, в контейнере `/data`): сайты, версии, чаты,
+  заявки (`{id}.leads.json` — переживают рестарт).
+- Вход по email-коду: при настроенном SMTP (`SMTP_*` в `.env`) коды
+  отправляет/проверяет бэкенд (`/api/auth/code`, `/api/auth/verify`,
+  кулдаун 44 с, TTL 10 мин, 5 попыток); без SMTP фронт работает в демо-режиме.
+- CI (`.github/workflows/ci.yml`): pytest + `node --check` на каждый push.
 
 ## Что дальше (ближайшие шаги)
 

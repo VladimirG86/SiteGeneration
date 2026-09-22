@@ -124,3 +124,93 @@ def test_ratelimit_429(client, monkeypatch):
     assert client.post("/api/analyze", json=body).status_code == 200
     assert client.post("/api/analyze", json=body).status_code == 200
     assert client.post("/api/analyze", json=body).status_code == 429
+
+
+def _seed_site(tmp_path, site_id="ed1"):
+    site = chat_ops.normalize_site(demo_content.build_site(
+        {"Название": "T", "О бизнесе": "Кафе в Казани.", "Услуги/товары": "Кофе - 100",
+         "Преимущества": "Вкусно", "Дополнительно": ""}, "light", "blue"))
+    site["theme"] = {"mode": "light", "accent": "blue"}
+    generator._save_all(site_id, site, sections.render_page(dict(site), site_id=site_id), True)
+
+
+def _sse_events(text):
+    """Парсит text/event-stream в список (event, data)."""
+    events = []
+    for chunk in text.split("\n\n"):
+        ev, data = None, None
+        for line in chunk.splitlines():
+            if line.startswith("event: "):
+                ev = line[7:]
+            elif line.startswith("data: "):
+                data = json.loads(line[6:])
+        if ev:
+            events.append((ev, data))
+    return events
+
+
+def test_chat_stream_mocked(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(llm, "API_KEY", "test-key")
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: json.dumps({
+        "reply": "Готово.", "ops": [{"op": "set_theme", "mode": "dark"}]}))
+    _seed_site(tmp_path, "sse1")
+    r = client.get("/api/chat/stream/sse1", params={"message": "сделай тёмную тему"})
+    assert r.status_code == 200, r.text
+    assert "text/event-stream" in r.headers["content-type"]
+    events = _sse_events(r.text)
+    assert events[0][0] == "start"
+    assert events[-1][0] == "done" and events[-1][1]["applied"] == 1
+
+
+def test_chat_stream_validation(client, tmp_path):
+    _seed_site(tmp_path, "sse2")
+    assert client.get("/api/chat/stream/sse2", params={"message": "x"}).status_code == 400
+    assert client.get("/api/chat/stream/nope", params={"message": "сделай тёмную"}).status_code == 404
+    assert client.get("/api/chat/stream/..%2F..", params={"message": "сделай тёмную"}).status_code in (400, 404)
+
+
+def test_leads_persisted_to_disk(client, tmp_path):
+    client.post("/api/lead/disk1", json={"name": "А", "type": "form"})
+    p = tmp_path / "disk1.leads.json"
+    assert p.exists()
+    assert json.loads(p.read_text(encoding="utf-8"))[0]["name"] == "А"
+    assert client.get("/api/leads/disk1").json()[0]["name"] == "А"
+
+
+def test_job_id_guard(client):
+    assert client.get("/api/job/..%2Fapp").status_code == 404
+    assert client.get("/api/site/..%2Fapp").status_code == 404
+    assert client.post("/api/undo/..%2Fapp").status_code == 404
+
+
+def test_auth_smtp_disabled(client):
+    assert client.post("/api/auth/code", json={"email": "a@b.ru"}).status_code == 503
+    assert client.post("/api/auth/verify", json={"email": "a@b.ru", "code": "123456"}).status_code == 503
+    assert client.get("/api/config").json()["auth"] is False
+
+
+def test_auth_flow_mocked_smtp(client, monkeypatch):
+    monkeypatch.setattr(appmod, "SMTP_HOST", "smtp.test")
+    monkeypatch.setattr(appmod, "SMTP_USER", "u")
+    monkeypatch.setattr(appmod, "SMTP_PASS", "p")
+    monkeypatch.setattr(appmod, "SMTP_FROM", "n@t.co")
+    sent = []
+    monkeypatch.setattr(appmod, "_send_code_email", lambda to, code: sent.append((to, code)))
+    monkeypatch.setattr(appmod, "_AUTH_CODES", {})
+
+    assert client.get("/api/config").json()["auth"] is True
+    r = client.post("/api/auth/code", json={"email": "User@Mail.ru"})
+    assert r.status_code == 200, r.text
+    assert sent and sent[0][0] == "user@mail.ru"
+    code = appmod._AUTH_CODES["user@mail.ru"]["code"]
+    # повторная отправка в кулдаун — 429
+    assert client.post("/api/auth/code", json={"email": "user@mail.ru"}).status_code == 429
+    # неверный код — 400, верный — ok (одноразовый)
+    assert client.post("/api/auth/verify",
+                       json={"email": "user@mail.ru", "code": "000000"}).status_code == 400
+    assert client.post("/api/auth/verify",
+                       json={"email": "user@mail.ru", "code": code}).json() == {"ok": True}
+    assert client.post("/api/auth/verify",
+                       json={"email": "user@mail.ru", "code": code}).status_code == 400
+    # плохие email
+    assert client.post("/api/auth/code", json={"email": "непочта"}).status_code == 400

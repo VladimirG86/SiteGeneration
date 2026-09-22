@@ -156,7 +156,7 @@ function bindButtons() {
     $('#btn-create').disabled = e.target.value.length !== 6;
   });
   $('#btn-create').addEventListener('click', startGeneration);
-  $('#btn-resend').addEventListener('click', startResend);
+  $('#btn-resend').addEventListener('click', () => startResend(false));
   $('#btn-change-email').addEventListener('click', () => { showScreen('wizard'); goStep(5); });
 
   /* result */
@@ -489,15 +489,40 @@ function closeModal() { $('#modal').classList.add('hidden'); }
 
 /* ----------------------------------------------------------- code step --- */
 function openCodeScreen() {
-  state.code = String(Math.floor(100000 + Math.random() * 900000));
-  $('#code-email-text').innerHTML = `Мы «отправили» 6-значный код на <b>${escapeHtml(state.email)}</b>. После подтверждения сразу начнём создавать сайт.`;
-  $('#demo-code').textContent = state.code;
   const inp = $('#code-input');
   inp.value = '';
   $('#btn-create').disabled = true;
   showScreen('code');
   setTimeout(() => inp.focus(), 80);
+  if (CFG.auth) {
+    // боевой режим: код отправляет сервер через SMTP
+    state.code = '';
+    document.querySelector('#screen-code .hint').style.display = 'none';
+    $('#code-email-text').innerHTML = `Отправляем 6-значный код на <b>${escapeHtml(state.email)}</b>…`;
+    requestServerCode();
+    startResend(true);
+    return;
+  }
+  // демо-режим: код генерируется локально и показывается на экране
+  state.code = String(Math.floor(100000 + Math.random() * 900000));
+  document.querySelector('#screen-code .hint').style.display = '';
+  $('#code-email-text').innerHTML = `Мы «отправили» 6-значный код на <b>${escapeHtml(state.email)}</b>. После подтверждения сразу начнём создавать сайт.`;
+  $('#demo-code').textContent = state.code;
   startResend(true);
+}
+
+async function requestServerCode() {
+  try {
+    const r = await fetch('/api/auth/code', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: state.email }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    $('#code-email-text').innerHTML = `Мы отправили 6-значный код на <b>${escapeHtml(state.email)}</b>. После подтверждения сразу начнём создавать сайт.`;
+  } catch (e) {
+    $('#code-email-text').innerHTML = `Не удалось отправить код на <b>${escapeHtml(state.email)}</b>: ${escapeHtml(e.message)}. Попробуйте «Отправить ещё раз».`;
+  }
 }
 let resendTimer = null;
 function startResend(init) {
@@ -511,12 +536,61 @@ function startResend(init) {
     sec--;
   };
   tick(); resendTimer = setInterval(tick, 1000);
-  if (init) $('#demo-code').textContent = state.code;
+  if (init) {
+    if (!CFG.auth) $('#demo-code').textContent = state.code;
+  } else if (CFG.auth) {
+    requestServerCode();
+  } else {
+    // демо: «отправить ещё раз» = новый код
+    state.code = String(Math.floor(100000 + Math.random() * 900000));
+    $('#demo-code').textContent = state.code;
+  }
 }
 
 /* ----------------------------------------------------------- generate ---- */
 async function startGeneration() {
+  if (CFG.auth) { await startGenerationServerAuthed(); return; }
   if ($('#code-input').value !== state.code) { $('#code-input').value = ''; $('#btn-create').disabled = true; return; }
+  beginGeneration();
+}
+
+async function startGenerationServerAuthed() {
+  const btn = $('#btn-create');
+  btn.disabled = true;
+  const oldHtml = btn.innerHTML;
+  btn.textContent = 'Проверяем…';
+  try {
+    const r = await fetch('/api/auth/verify', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: state.email, code: $('#code-input').value.trim() }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Неверный код');
+    beginGeneration();
+  } catch (e) {
+    $('#code-input').value = '';
+    btn.innerHTML = oldHtml;
+    btn.disabled = true;
+    codeError(e.message);
+  }
+}
+
+function codeError(msg) {
+  let el = $('#code-error');
+  if (!el) {
+    el = document.createElement('p');
+    el.id = 'code-error';
+    el.className = 'warning';
+    el.style.textAlign = 'center';
+    $('#btn-create').before(el);
+  }
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(codeError._t);
+  codeError._t = setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+async function beginGeneration() {
   showScreen('generating');
   $('#gen-error').classList.add('hidden');
   $('#gen-warning').classList.add('hidden');
@@ -583,7 +657,8 @@ function genError(msg) {
   again.className = 'btn-grad';
   again.style.marginTop = '16px';
   again.textContent = 'Попробовать снова';
-  again.addEventListener('click', () => startGeneration());
+  // почта уже подтверждена в этой сессии — код повторно не спрашиваем
+  again.addEventListener('click', () => { CFG.auth ? beginGeneration() : startGeneration(); });
   el.appendChild(document.createElement('br'));
   el.appendChild(again);
 }
@@ -738,20 +813,106 @@ async function sendChat() {
   edMsg('user', msg);
   inp.value = '';
   inp.style.height = 'auto';
+  // Пробуем SSE-поток, при любой проблеме — классический POST с опросом прогресса.
+  if (window.EventSource) {
+    try { await sendChatSSE(msg); return; }
+    catch (e) { /* молча откатываемся на POST */ }
+    finally {
+      if (state.editorBusy) { state.editorBusy = false; $('#ed-send').disabled = false; }
+    }
+  }
+  await sendChatLegacy(msg);
+}
+
+function chatProgressLabel(pr, s) {
+  if (pr && pr.stage === 'images' && pr.total) {
+    return pr.target === 'hero'
+      ? `Рисую фото для первого экрана… ${s} с`
+      : `Рисую фото товаров ${pr.done || 0}/${pr.total}… ${s} с`;
+  }
+  return s > 4 ? `Думаю… ${s} с` : '';
+}
+
+function finishChat(wait, timer, d) {
+  if (timer) clearInterval(timer);
+  wait.remove();
+  let text = d.reply || 'Готово.';
+  if (d.notes && d.notes.length) text += ' (' + d.notes.join('; ') + ')';
+  if (d.applied) text += '\n\nПрименено правок: ' + d.applied + '.';
+  edMsg('ai', text);
+  if (d.version) { state.editorVersion = d.version; updateEdTitle(); }
+  if (d.applied) refreshEditor();
+  state.editorBusy = false;
+  $('#ed-send').disabled = false;
+  $('#ed-input').focus();
+}
+
+function sendChatSSE(msg) {
+  return new Promise((resolve, reject) => {
+    const wait = edTyping();
+    const t0 = Date.now();
+    const url = '/api/chat/stream/' + state.editorJob + '?message=' + encodeURIComponent(msg);
+    const es = new EventSource(url);
+    let settled = false;
+    const timer = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      const label = s > 4 ? `Думаю… ${s} с` : '';
+      if (label && wait.isConnected) wait.innerHTML = '<span style="font-size:13px;color:var(--muted)">' + label + '</span>';
+    }, 1000);
+    const cleanup = () => { clearInterval(timer); try { es.close(); } catch (e) {} };
+    const finish = (fn) => { if (!settled) { settled = true; cleanup(); fn(); } };
+    const hardTimeout = setTimeout(() => finish(() => { wait.remove(); reject(new Error('timeout')); }), 6 * 60 * 1000);
+    es.addEventListener('progress', (e) => {
+      try {
+        const pr = JSON.parse(e.data);
+        const s = Math.round((Date.now() - t0) / 1000);
+        const label = chatProgressLabel(pr, s);
+        if (label) wait.innerHTML = '<span style="font-size:13px;color:var(--muted)">' + label + '</span>';
+      } catch (err) {}
+    });
+    es.addEventListener('done', (e) => {
+      clearTimeout(hardTimeout);
+      let d = {};
+      try { d = JSON.parse(e.data); } catch (err) {}
+      finish(() => { finishChat(wait, null, d); resolve(); });
+    });
+    es.addEventListener('error', (e) => {
+      // серверное событие error … или обрыв соединения (e.data пусто)
+      clearTimeout(hardTimeout);
+      let serverErr = null;
+      try { serverErr = e.data ? JSON.parse(e.data).error : null; } catch (err) {}
+      if (serverErr) {
+        finish(() => {
+          wait.remove();
+          edMsg('ai', 'Не получилось применить правку: ' + serverErr + '\nПопробуйте переформулировать запрос.');
+          state.editorBusy = false;
+          $('#ed-send').disabled = false;
+          resolve();
+        });
+      } else {
+        finish(() => { wait.remove(); reject(new Error('sse failed')); });
+      }
+    });
+    es.onerror = () => {
+      // HTTP-ошибка до старта потока (429/503/404): откат на POST
+      clearTimeout(hardTimeout);
+      finish(() => { wait.remove(); reject(new Error('sse failed')); });
+    };
+  });
+}
+
+async function sendChatLegacy(msg) {
+  const inp = $('#ed-input');
   const wait = edTyping();
   // Пока ждём синхронный /api/chat — показываем живой прогресс: сервер пишет
-  // его в память (этап LLM → генерация картинок), фронт опрашивает отдельно.
+  // его в память, фронт опрашивает отдельно.
   const t0 = Date.now();
   const timer = setInterval(async () => {
     const s = Math.round((Date.now() - t0) / 1000);
-    let label = s > 4 ? `Думаю… ${s} с` : '';
+    let label = chatProgressLabel(null, s);
     try {
       const pr = await (await fetch('/api/chat/progress/' + state.editorJob)).json();
-      if (pr && pr.stage === 'images' && pr.total) {
-        label = pr.target === 'hero'
-          ? `Рисую фото для первого экрана… ${s} с`
-          : `Рисую фото товаров ${pr.done || 0}/${pr.total}… ${s} с`;
-      }
+      label = chatProgressLabel(pr, s);
     } catch (e) { /* прогресс недоступен — показываем только таймер */ }
     if (label) wait.innerHTML = '<span style="font-size:13px;color:var(--muted)">' + label + '</span>';
   }, 1000);
@@ -762,22 +923,16 @@ async function sendChat() {
     });
     const d = await r.json();
     clearInterval(timer);
-    wait.remove();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-    let text = d.reply || 'Готово.';
-    if (d.notes && d.notes.length) text += ' (' + d.notes.join('; ') + ')';
-    if (d.applied) text += '\n\nПрименено правок: ' + d.applied + '.';
-    edMsg('ai', text);
-    if (d.version) { state.editorVersion = d.version; updateEdTitle(); }
-    if (d.applied) refreshEditor();
+    finishChat(wait, timer, d);
   } catch (e) {
     clearInterval(timer);
     wait.remove();
     edMsg('ai', 'Не получилось применить правку: ' + e.message + '\nПопробуйте переформулировать запрос.');
+    state.editorBusy = false;
+    $('#ed-send').disabled = false;
+    inp.focus();
   }
-  state.editorBusy = false;
-  $('#ed-send').disabled = false;
-  inp.focus();
 }
 
 async function editorUndo() {

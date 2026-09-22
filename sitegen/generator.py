@@ -3,9 +3,16 @@
 Генерация — 5 этапов (как у VERSTKA). Редактор — чат → ops-JSON (chat.py) →
 перерендер. Каждая правка создаёт новую версию (undo до 12 шагов).
 История чата персистентна ({id}.chat.json) — переживает рестарт сервера.
+
+Долгие правки можно слушать двумя способами:
+  — опрос GET /api/chat/progress/{id} (фолбэк);
+  — SSE-поток edit_site_stream(): start → progress* → done | error.
+
+Данные лежат в SITEGEN_DATA_DIR (по умолчанию ./sites) — в Docker это volume.
 """
 import json
 import os
+import queue
 import threading
 import time
 import uuid
@@ -18,7 +25,8 @@ import niches
 import prompts
 import sections
 
-SITES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites")
+SITES_DIR = os.environ.get("SITEGEN_DATA_DIR") or \
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites")
 os.makedirs(SITES_DIR, exist_ok=True)
 
 STAGES = [
@@ -253,80 +261,138 @@ def get_chat_history(job_id: str) -> list:
     return _load_chat_file(job_id)
 
 
-def edit_site(job_id: str, user_msg: str) -> dict:
-    """Применяет одну ИИ-правку: чат → ops → структура → перерендер."""
-    with _LOCK:
-        job = _JOBS.get(job_id)
+def _do_edit(job_id: str, user_msg: str, images_cb=None) -> dict:
+    """Ядро правки: чат → ops → структура → перерендер.
+
+    images_cb(stage, done, total, target) вызывается на этапах картинок
+    (или None). Возвращает result-словарь; {"error": ...} — сайт не найден.
+    Исключения LLM/сети пробрасываются вызывающему.
+    """
     site = _load_site(job_id)
     if site is None:
         return {"error": "Сайт не найден"}
     chat_ops.ensure_ids(site)  # миграция сайтов, созданных до введения id
     history = get_chat_history(job_id)
 
+    raw = llm.chat(
+        chat_ops.build_editor_messages(site, history, user_msg),
+        temperature=0.35, max_tokens=12000, timeout=240,
+    )
+    data = llm.extract_json(raw)
+    reply = str(data.get("reply") or "").strip()[:600] or "Готово."
+    ops = data.get("ops") if isinstance(data.get("ops"), list) else []
+    if not ops:
+        # правок нет — это просто ответ на вопрос; в историю, без версии
+        _remember(job_id, user_msg, reply)
+        return {"reply": reply, "applied": 0, "version": get_version(job_id), "ops": 0}
+
+    # изображения генерируются отдельно (долго), остальное — через apply_ops
+    struct_ops = [op for op in ops
+                  if not (isinstance(op, dict) and op.get("op") == "gen_images")]
+    gen_ops = [op for op in ops
+               if isinstance(op, dict) and op.get("op") == "gen_images"]
+
+    applied, notes = chat_ops.apply_ops(site, struct_ops)
+    if gen_ops:
+        import images as images_mod
+        for g in gen_ops[:2]:
+            target = g.get("target")
+            count = g.get("count")
+            count = int(count) if str(count or "").isdigit() else 6
+            count = max(1, min(count, 8))
+            if target == "products":
+                if images_cb:
+                    images_cb("images", 0, count, "products")
+
+                def _cb(d, t, _cb2=images_cb):
+                    if _cb2:
+                        _cb2("images", d, t, "products")
+
+                n = images_mod.generate_products(site, job_id, count, on_progress=_cb)
+                if n:
+                    applied += 1
+                else:
+                    notes.append("фото товаров сгенерировать не удалось")
+            elif target == "hero":
+                if images_cb:
+                    images_cb("images", 0, 1, "hero")
+                ok = images_mod.generate_hero(site, job_id)
+                if images_cb:
+                    images_cb("images", 1 if ok else 0, 1, "hero")
+                if not ok:
+                    notes.append("фото на первый экран сгенерировать не удалось")
+                else:
+                    applied += 1
+
+    html = sections.render_page(site, site_id=job_id)
+    _save_all(job_id, site, html, push_version=True)
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job:
+            job["html"] = html
+    _remember(job_id, user_msg,
+              reply + (f" ({', '.join(notes)})" if notes else ""))
+    return {"reply": reply, "applied": applied, "notes": notes,
+            "version": get_version(job_id), "ops": len(ops)}
+
+
+def edit_site(job_id: str, user_msg: str) -> dict:
+    """Синхронная правка (POST /api/chat). Прогресс — через /api/chat/progress."""
     _set_progress(job_id, {"stage": "llm", "done": 0, "total": 1})
     try:
-        raw = llm.chat(
-            chat_ops.build_editor_messages(site, history, user_msg),
-            temperature=0.35, max_tokens=12000, timeout=240,
-        )
-        data = llm.extract_json(raw)
-        reply = str(data.get("reply") or "").strip()[:600] or "Готово."
-        ops = data.get("ops") if isinstance(data.get("ops"), list) else []
-        if not ops:
-            # правок нет — это просто ответ на вопрос; в историю, без версии
-            _remember(job_id, user_msg, reply)
-            return {"reply": reply, "applied": 0, "version": get_version(job_id), "ops": 0}
-
-        # изображения генерируются отдельно (долго), остальное — через apply_ops
-        struct_ops = [op for op in ops
-                      if not (isinstance(op, dict) and op.get("op") == "gen_images")]
-        gen_ops = [op for op in ops
-                   if isinstance(op, dict) and op.get("op") == "gen_images"]
-
-        applied, notes = chat_ops.apply_ops(site, struct_ops)
-        if gen_ops:
-            import images as images_mod
-            for g in gen_ops[:2]:
-                target = g.get("target")
-                count = g.get("count")
-                count = int(count) if str(count or "").isdigit() else 6
-                count = max(1, min(count, 8))
-                if target == "products":
-                    _set_progress(job_id, {"stage": "images", "target": "products",
-                                           "done": 0, "total": count})
-
-                    def _cb(d, t, _job=job_id):
-                        _set_progress(_job, {"stage": "images", "target": "products",
-                                             "done": d, "total": t})
-
-                    n = images_mod.generate_products(site, job_id, count, on_progress=_cb)
-                    if n:
-                        applied += 1
-                    else:
-                        notes.append("фото товаров сгенерировать не удалось")
-                elif target == "hero":
-                    _set_progress(job_id, {"stage": "images", "target": "hero",
-                                           "done": 0, "total": 1})
-                    ok = images_mod.generate_hero(site, job_id)
-                    _set_progress(job_id, {"stage": "images", "target": "hero",
-                                           "done": 1 if ok else 0, "total": 1})
-                    if not ok:
-                        notes.append("фото на первый экран сгенерировать не удалось")
-                    else:
-                        applied += 1
-
-        html = sections.render_page(site, site_id=job_id)
-        _save_all(job_id, site, html, push_version=True)
-        with _LOCK:
-            job = _JOBS.get(job_id)
-            if job:
-                job["html"] = html
-        _remember(job_id, user_msg,
-                  reply + (f" ({', '.join(notes)})" if notes else ""))
-        return {"reply": reply, "applied": applied, "notes": notes,
-                "version": get_version(job_id), "ops": len(ops)}
+        return _do_edit(
+            job_id, user_msg,
+            images_cb=lambda st, d, t, tgt: _set_progress(
+                job_id, {"stage": st, "done": d, "total": t, "target": tgt}))
     finally:
         _set_progress(job_id, None)
+
+
+def edit_site_stream(job_id: str, user_msg: str):
+    """SSE-поток правки: yield (event, data).
+
+    События: start → progress* → done | error. Между ними — ping каждые ~15 c
+    простоя (keep-alive для прокси). Правка выполняется в worker-потоке,
+    генератор разгребает очередь — клиент получает события в реальном времени.
+    """
+    q = queue.Queue()
+
+    def _cb(st, d, t, tgt):
+        payload = {"stage": st, "done": d, "total": t, "target": tgt}
+        q.put(("progress", payload))
+        _set_progress(job_id, payload)  # опросный фолбэк тоже живёт
+
+    outcome = {}
+
+    def _work():
+        try:
+            outcome["result"] = _do_edit(job_id, user_msg, images_cb=_cb)
+        except Exception as e:  # noqa: BLE001 — отдадим событием error
+            outcome["error"] = str(e)
+        finally:
+            _set_progress(job_id, None)
+            q.put((None, None))  # sentinel
+
+    threading.Thread(target=_work, daemon=True).start()
+    yield ("start", {"job": job_id})
+    idle = 0
+    while True:
+        try:
+            ev, data = q.get(timeout=1.0)
+        except queue.Empty:
+            idle += 1
+            if idle >= 15:
+                yield ("ping", {})
+                idle = 0
+            continue
+        idle = 0
+        if ev is None:
+            break
+        yield (ev, data)
+    if "error" in outcome:
+        yield ("error", {"error": outcome["error"]})
+    else:
+        yield ("done", outcome.get("result", {"error": "пустой результат"}))
 
 
 def _remember(job_id: str, user_msg: str, assistant_msg: str):

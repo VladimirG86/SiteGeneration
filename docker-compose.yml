@@ -1,0 +1,15 @@
+# Прод-подобный стенд: приложение + персистентный volume под сайты/заявки.
+# Ключи — в корневом .env (скопируй из sitegen/.env.example):
+#   cp sitegen/.env.example .env && docker compose up --build
+services:
+  app:
+    build: .
+    env_file: [.env]
+    environment:
+      SITEGEN_DATA_DIR: /data
+    ports: ["8000:8000"]
+    volumes: [sitegen-data:/data]
+    restart: unless-stopped
+
+volumes:
+  sitegen-data:
