@@ -91,7 +91,7 @@ def build_css(mode: str, accent: str) -> str:
     .btn-accent:hover{{background:#E86647}}
 
     /* ---------- sections ---------- */
-    .section{{padding:80px 0}}
+    .section{{padding:80px 0; scroll-margin-top:72px}}
     .section.alt{{background:var(--bg2)}}
     .kicker{{display:inline-flex;align-items:center;gap:8px;font-family:'Inter',sans-serif;font-size:12px;font-weight:600;
       letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
