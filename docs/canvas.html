@@ -9,21 +9,24 @@
 <style>
 :root{--canvas-bg:#ECECF4; --grid:#E7E5F0; --sel:#5B5FEF}
 body{overflow:hidden}
-.topbar-canvas{position:sticky;top:0;z-index:30;background:rgba(250,249,247,.86);backdrop-filter:blur(12px);border-bottom:1px solid #E7E5F0;display:flex;align-items:center;gap:10px;padding:10px 14px}
-.brand{flex-shrink:0}
+.topbar-canvas{position:sticky;top:0;z-index:30;background:rgba(250,249,247,.86);backdrop-filter:blur(12px);border-bottom:1px solid #E7E5F0;display:flex;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap}
+.brand{flex-shrink:0;display:flex;align-items:center;gap:10px;font-family:'Unbounded',sans-serif;font-weight:800;font-size:15px}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .toolbar .sep{width:1px;height:22px;background:#E7E5F0;margin:0 4px}
-.btn-sm{padding:8px 10px;border-radius:10px;border:1.5px solid #E7E5F0;background:#fff;font-family:'Inter',sans-serif;font-weight:600;font-size:12px;cursor:pointer}
+.btn-sm{padding:8px 10px;border-radius:10px;border:1.5px solid #E7E5F0;background:#fff;font-family:'Inter',sans-serif;font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .btn-sm.primary{background:#5B5FEF;color:#fff;border-color:#5B5FEF;box-shadow:0 6px 14px rgba(91,95,239,.22)}
-.canvas-layout{display:grid;grid-template-columns:220px 1fr 300px;height:calc(100vh - 58px)}
-@media(max-width:980px){.canvas-layout{grid-template-columns:56px 1fr 0}.props{display:none}}
+.btn-sm.active{background:#EDEFFF;border-color:#5B5FEF;color:#5B5FEF}
+.canvas-layout{display:grid;grid-template-columns:220px 1fr 320px;height:calc(100vh - 58px)}
+@media(max-width:1100px){.canvas-layout{grid-template-columns:60px 1fr 300px}}
+@media(max-width:820px){.canvas-layout{grid-template-columns:1fr}.palette,.props{display:none}.palette.mobile-open{display:block;position:fixed;inset:58px auto 0 0;width:220px;z-index:20}}
 .palette{background:#fff;border-right:1px solid #E7E5F0;overflow:auto}
 .palette h4{font-family:'Unbounded',sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#7A7A8E;padding:12px 12px 6px}
 .palette button{display:flex;gap:8px;align-items:center;width:calc(100% - 16px);margin:6px 8px;padding:10px 12px;border-radius:10px;border:1px solid #E7E5F0;background:#FAF9F7;font-family:'Inter',sans-serif;font-weight:600;font-size:13px;cursor:pointer;text-align:left}
 .palette button:hover{border-color:#5B5FEF;background:#EDEFFF;color:#5B5FEF}
 .canvas-area{background:var(--canvas-bg);overflow:auto;position:relative;display:flex;justify-content:center;padding:24px}
-.canvas-stage{position:relative;width:1120px;min-height:720px;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden;flex-shrink:0}
+.canvas-stage{position:relative;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden;flex-shrink:0;transition:width .2s}
 .canvas-stage::before{content:'';position:absolute;inset:0;background-image:radial-gradient(#E7E5F0 1px, transparent 1px);background-size:24px 24px;opacity:.6;pointer-events:none}
+.canvas-stage.snap::after{content:'';position:absolute;inset:0;background-image:linear-gradient(to right, rgba(91,95,239,.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(91,95,239,.06) 1px, transparent 1px);background-size:24px 24px;pointer-events:none}
 .block{position:absolute;border:1.5px solid transparent;border-radius:10px;overflow:hidden;background:transparent;cursor:move;user-select:none}
 .block.selected{border-color:var(--sel);box-shadow:0 0 0 3px rgba(91,95,239,.14)}
 .block .handle{position:absolute;width:10px;height:10px;background:#fff;border:1.5px solid var(--sel);border-radius:2px;display:none}
@@ -39,30 +42,44 @@ body{overflow:hidden}
 .field label{font-size:12px;font-weight:600;color:#7A7A8E;display:block;margin-bottom:6px}
 .field input,.field select,.field textarea{width:100%;border:1.5px solid #E7E5F0;background:#FAF9F7;border-radius:10px;padding:8px 10px;font-family:'Inter',sans-serif;font-size:13px}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.layers{margin-top:10px;border-top:1px solid #E7E5F0;padding-top:10px}
-.layer{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.layers{margin-top:10px;border-top:1px solid #E7E5F0;padding-top:10px;max-height:220px;overflow:auto}
+.layer{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent;font-size:12px}
 .layer.active{background:#EDEFFF;border-color:#CFCDE6;color:#5B5FEF}
-.layer span{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.layer span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{padding:30px 10px;text-align:center;color:#7A7A8E}
 .badge-free{background:rgba(46,196,182,.12);color:#1FA99B;border:1px solid #2EC4B6;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800}
+.hint2{font-size:11px;color:#7A7A8E}
+.guides{position:absolute;inset:0;pointer-events:none}
+.guide-v{position:absolute;top:0;bottom:0;width:1px;background:rgba(91,95,239,.35);display:none}
+.guide-h{position:absolute;left:0;right:0;height:1px;background:rgba(91,95,239,.35);display:none}
 </style>
 </head>
 <body>
 <div class="topbar-canvas">
-  <a class="brand" href="/" style="text-decoration:none"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span><span style="font-family:'Unbounded',sans-serif;font-weight:800">Nelvi</span><span class="tagline">Canvas · Level 3</span></a>
+  <a class="brand" href="/" style="text-decoration:none;color:inherit"><span class="brand-mark" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5B5FEF,#7B7FFF);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span>Nelvi <span class="tagline" style="font-family:Inter,sans-serif;font-weight:500;font-size:11px;opacity:.6">Canvas · Level 3</span></a>
   <span class="badge-free">FREE CANVAS</span>
+  <div class="toolbar" style="margin-left:8px">
+    <button class="btn-sm" id="btn-desktop" onclick="setDevice('desktop')">🖥️ 1120</button>
+    <button class="btn-sm" onclick="setDevice('tablet')">📱 768</button>
+    <button class="btn-sm" onclick="setDevice('mobile')">📲 400</button>
+    <div class="sep"></div>
+    <label class="btn-sm" style="cursor:pointer"><input type="checkbox" id="snap" checked style="accent-color:#5B5FEF"> Сетка 24</label>
+    <button class="btn-sm" onclick="undo()" title="Ctrl+Z">↩️</button>
+    <button class="btn-sm" onclick="redo()" title="Ctrl+Y">↪️</button>
+  </div>
   <div style="flex:1"></div>
   <div class="toolbar">
-    <button class="btn-sm" onclick="importLanding()">Импорт лендинга → Canvas</button>
+    <button class="btn-sm" onclick="importLandingReal()">Импорт лендинга → Canvas</button>
+    <button class="btn-sm" onclick="importLanding()">+ Демо блок</button>
     <div class="sep"></div>
     <button class="btn-sm" onclick="save()">Сохранить</button>
     <button class="btn-sm" onclick="exportHtml()">Экспорт HTML</button>
     <button class="btn-sm primary" onclick="publish()">Опубликовать</button>
-    <a href="/static/client.html" class="btn-sm" style="text-decoration:none;color:inherit">Клиенту →</a>
+    <a href="/client" class="btn-sm" style="text-decoration:none;color:inherit">Клиенту →</a>
   </div>
 </div>
 <div class="canvas-layout">
-  <div class="palette">
+  <div class="palette" id="palette">
     <h4>Блоки</h4>
     <button onclick="addBlock('heading')"><span>🔤</span> Заголовок</button>
     <button onclick="addBlock('text')"><span>📝</span> Текст</button>
@@ -74,98 +91,143 @@ body{overflow:hidden}
     <button onclick="loadTemplate('hero')"><span>🏔️</span> Hero</button>
     <button onclick="loadTemplate('features')"><span>✨</span> Преимущества 3×</button>
     <button onclick="loadTemplate('contact')"><span>📞</span> Контакты</button>
-    <div style="padding:12px" class="hint2">Таскай блоки мышкой, тяни за углы — ресайз. Двойной клик → редактировать текст. Слои справа.</div>
+    <div style="padding:12px" class="hint2">Таскай блоки, тяни за углы. Двойной клик — править текст. <b>Del</b> удалить, <b>Ctrl+Z/Y</b> история, стрелки — сдвиг 1px (Shift 10px).</div>
   </div>
   <div class="canvas-area" id="area">
-    <div class="canvas-stage" id="stage" style="width:1120px;min-height:720px">
-      <!-- blocks injected -->
+    <div class="canvas-stage snap" id="stage" style="width:1120px;min-height:720px">
+      <div class="guides"><div class="guide-v" id="gv"></div><div class="guide-h" id="gh"></div></div>
     </div>
   </div>
   <div class="props" id="props">
     <h4>Свойства</h4>
     <div id="props-body"><div class="empty">Выбери блок</div></div>
+    <div id="image-tools" style="display:none">
+      <div class="field"><label>Картинка URL</label><input id="img-url" placeholder="https://..." oninput="updateImageUrl(this.value)"></div>
+      <div class="field"><label>Или загрузить файл</label><input type="file" accept="image/*" onchange="uploadImage(this.files[0])"></div>
+    </div>
     <div class="layers">
-      <h4>Слои</h4>
+      <h4>Слои <span id="layer-count" class="hint2"></span></h4>
       <div id="layers"></div>
     </div>
     <div style="margin-top:12px;display:grid;gap:8px">
-      <button class="btn-sm" onclick="duplicate()">Дублировать</button>
-      <button class="btn-sm" onclick="remove()">Удалить</button>
-      <button class="btn-sm" onclick="bringFront()">На передний</button>
-      <button class="btn-sm" onclick="sendBack()">На задний</button>
+      <div class="row2"><button class="btn-sm" onclick="duplicate()">Дублировать</button><button class="btn-sm" onclick="remove()">Удалить (Del)</button></div>
+      <div class="row2"><button class="btn-sm" onclick="bringFront()">На передний</button><button class="btn-sm" onclick="sendBack()">На задний</button></div>
+      <div class="row2"><button class="btn-sm" onclick="undo()">↩️ Назад</button><button class="btn-sm" onclick="redo()">↪️ Вперёд</button></div>
     </div>
     <div style="margin-top:12px;padding:10px;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:10px" class="hint2">
-      Level 3 — свободный канвас. Сохраняется в <code>localStorage: nelvi_canvas_v1</code> + `POST /api/canvas/{id}` (если бэкенд подключён). Совместим с лендингом: импорт → дальше правишь свободно.
+      Level 3 — свободный канвас. <code>localStorage: nelvi_canvas_v1</code> + <code>POST /api/canvas/demo-canvas</code>. История 50 шагов. Сетка 24px, брейкпоинты 1120/768/400.
     </div>
   </div>
 </div>
+<input type="file" id="filepick" accept="image/*" style="display:none">
 <script>
 const LS='nelvi_canvas_v1';
 let blocks = JSON.parse(localStorage.getItem(LS) || 'null') || [
-  {id:'h1', type:'heading', x:48, y:48, w:520, h:84, z:1, props:{text:'Сайт за вечер. Без кода.', font:'Unbounded', size:36, color:'#2B2B36', bg:'transparent', align:'left'}},
+  {id:'h1', type:'heading', x:48, y:48, w:520, h:84, z:1, props:{text:'Сайт за вечер. Без кода.', size:36, color:'#2B2B36'}},
   {id:'t1', type:'text', x:48, y:148, w:520, h:72, z:2, props:{text:'Собирай страницы блоками, публикуй в один клик. Свободный канвас — двигай всё мышкой как в Tilda.', size:15, color:'#7A7A8E'}},
   {id:'b1', type:'button', x:48, y:240, w:180, h:44, z:3, props:{text:'Попробовать →', bg:'#5B5FEF', color:'#fff', radius:10}},
   {id:'img1', type:'image', x:640, y:48, w:432, h:280, z:1, props:{src:'', emoji:'🏔️', bg:'#EDEFFF', radius:16}},
-  {id:'f1', type:'form', x:48, y:340, w:480, h:220, z:2, props:{title:'Оставьте заявку', bg:'#fff'}},
+  {id:'f1', type:'form', x:48, y:340, w:480, h:220, z:2, props:{title:'Оставьте заявку'}},
 ];
-let selected=null, drag=null, resize=null;
+let selected=null;
+let device='desktop';
+let history=[JSON.stringify(blocks)], histPos=0;
 const stage=document.getElementById('stage');
-function save(){ localStorage.setItem(LS, JSON.stringify(blocks)); toast('Сохранено в localStorage'); // try backend
-  const id='demo-canvas'; fetch('/api/canvas/'+id, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})}).catch(()=>{});
+const snapEl=document.getElementById('snap');
+function pushHist(){ const s=JSON.stringify(blocks); if(s===history[histPos]) return; history=history.slice(0,histPos+1); history.push(s); histPos++; if(history.length>50){history.shift(); histPos--;} }
+function undo(){ if(histPos>0){ histPos--; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↩️ Отменено'); } }
+function redo(){ if(histPos<history.length-1){ histPos++; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↪️ Повтор'); } }
+function save(withHist=true){
+  localStorage.setItem(LS, JSON.stringify(blocks));
+  if(withHist) pushHist();
+  fetch('/api/canvas/demo-canvas', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})}).catch(()=>{});
+  if(withHist) toast('Сохранено');
 }
 function uid(){return Math.random().toString(36).slice(2,8)}
+function snap(v){ return snapEl.checked ? Math.round(v/24)*24 : v; }
+function setDevice(d){
+  device=d;
+  const w={desktop:1120, tablet:768, mobile:400}[d];
+  stage.style.width=w+'px';
+  document.querySelectorAll('#palette + .canvas-area + .props').forEach(()=>{});
+  document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));
+  const map={desktop:'🖥️', tablet:'📱', mobile:'📲'}; // highlight
+  document.getElementById('btn-desktop')?.classList.toggle('active', d==='desktop');
+  toast('Экран: '+w+'px');
+}
 function addBlock(type){
   const id=uid();
-  const base={heading:{w:480,h:64,props:{text:'Новый заголовок',size:28,color:'#2B2B36'}}, text:{w:420,h:80,props:{text:'Новый текст — двойной клик чтобы редактировать',size:14,color:'#7A7A8E'}}, button:{w:180,h:44,props:{text:'Кнопка',bg:'#FF7A59',color:'#fff',radius:10}}, image:{w:320,h:180,props:{emoji:'🖼️',bg:'#EDEFFF',radius:12}}, form:{w:420,h:220,props:{title:'Форма',bg:'#fff'}}, divider:{w:1120-96,h:2,props:{bg:'#E7E5F0'}}}[type];
-  blocks.push({id, type, x:80+Math.random()*120, y:80+Math.random()*120, w:base.w, h:base.h, z:blocks.length+1, props:Object.assign({}, base.props)});
-  render(); select(id);
+  const base={heading:{w:480,h:64,props:{text:'Новый заголовок',size:28,color:'#2B2B36'}}, text:{w:420,h:80,props:{text:'Новый текст — двойной клик чтобы редактировать',size:14,color:'#7A7A8E'}}, button:{w:180,h:44,props:{text:'Кнопка',bg:'#FF7A59',color:'#fff',radius:10}}, image:{w:320,h:180,props:{emoji:'🖼️',bg:'#EDEFFF',radius:12,src:''}}, form:{w:420,h:220,props:{title:'Форма'}}, divider:{w:1024,h:2,props:{bg:'#E7E5F0'}}}[type];
+  const b={id, type, x:snap(80+Math.random()*120), y:snap(80+Math.random()*120), w:base.w, h:base.h, z:Math.max(0,...blocks.map(x=>x.z))+1, props:Object.assign({}, base.props)};
+  blocks.push(b); pushHist(); render(); select(id); save(false);
 }
 function loadTemplate(t){
   if(t==='hero'){ blocks=blocks.concat([{id:uid(),type:'heading',x:48,y:480,w:520,h:64,z:10,props:{text:'Преимущества',size:24,color:'#2B2B36'}},{id:uid(),type:'text',x:48,y:552,w:520,h:48,z:11,props:{text:'Три факта с цифрами — без воды',size:14,color:'#7A7A8E'}}]);}
   if(t==='features'){ for(let i=0;i<3;i++) blocks.push({id:uid(),type:'text',x:48+i*360,y:620,w:320,h:100,z:12+i,props:{text:'✨ Фича '+(i+1)+'\nС цифрой и фактом',size:13,color:'#2B2B36',bg:'#fff',border:'#E7E5F0'}}); }
-  if(t==='contact'){ blocks.push({id:uid(),type:'form',x:640,y:480,w:432,h:220,z:20,props:{title:'Связаться',bg:'#fff'}}); }
-  render(); save();
+  if(t==='contact'){ blocks.push({id:uid(),type:'form',x:640,y:480,w:432,h:220,z:20,props:{title:'Связаться'}}); }
+  pushHist(); render(); save(false);
+}
+async function importLandingReal(){
+  const id=prompt('ID лендинга для импорта (например из /api/site/ID или оставь пустым для демо):','');
+  if(!id){ importLanding(); return; }
+  try{
+    const r=await fetch('/api/site/'+encodeURIComponent(id));
+    if(!r.ok) throw new Error('Сайт не найден');
+    // try fetch JSON via generator endpoint? fallback: parse HTML is hard, so fetch via /api/canvas or site dict
+    // we expose site dict via /api/site/{id} HTML only, so fetch via app.py's generator.get_site_dict is not exposed directly.
+    // Try /api/job/{id} to get site? We'll try to fetch site JSON via hidden endpoint: use /api/site/{id} html parse is heavy.
+    // For MVP: just ask for JSON via prompt
+    const txt=await r.text();
+    toast('Импорт: HTML получен, парсим заголовки...');
+    // naive parse: extract title/h2
+    const m=txt.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    const h1=m?m[1].trim():'Импортированный лендинг';
+    blocks.push({id:uid(),type:'heading',x:48,y:720,w:600,h:64,z:30,props:{text:h1,size:26,color:'#2B2B36'}});
+    blocks.push({id:uid(),type:'text',x:48,y:800,w:600,h:80,z:31,props:{text:'Импортировано из '+id+' — дальше правь свободно',size:13,color:'#7A7A8E'}});
+    pushHist(); render(); save(false);
+  }catch(e){ alert('Импорт не удался: '+e.message); importLanding(); }
 }
 function importLanding(){
-  alert('Демо: в проде — GET /api/site/{id} → парсим sections (hero/services/prices) в блоки канваса. Сейчас добавим пример.');
   addBlock('heading'); addBlock('text'); addBlock('button');
 }
 function exportHtml(){
-  const html='<!doctype html>'+document.documentElement.outerHTML;
   const blob=new Blob([renderExportHtml()],{type:'text/html'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='canvas.html'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function renderExportHtml(){
   let inner=blocks.slice().sort((a,b)=>a.z-b.z).map(b=> {
     const s=`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;z-index:${b.z};`;
-    if(b.type==='heading') return `<div style="position:absolute;${s}font-family:Unbounded,sans-serif;font-size:${b.props.size||28}px;color:${b.props.color};font-weight:800">${b.props.text}</div>`;
-    if(b.type==='text') return `<div style="position:absolute;${s}font-family:Inter,sans-serif;font-size:${b.props.size||14}px;color:${b.props.color};background:${b.props.bg||'transparent'};border:${b.props.border?'1px solid '+b.props.border:'none'};border-radius:10px;padding:10px;white-space:pre-line">${b.props.text}</div>`;
-    if(b.type==='button') return `<a href="#" style="position:absolute;${s}display:flex;align-items:center;justify-content:center;background:${b.props.bg};color:${b.props.color};border-radius:${b.props.radius||10}px;font-family:Inter,sans-serif;font-weight:600;text-decoration:none">${b.props.text}</a>`;
-    if(b.type==='image') return `<div style="position:absolute;${s}background:${b.props.bg};border-radius:${b.props.radius||12}px;display:flex;align-items:center;justify-content:center;font-size:42px">${b.props.emoji||'🖼️'}</div>`;
-    if(b.type==='form') return `<div style="position:absolute;${s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>${b.props.title}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>`;
+    if(b.type==='heading') return `<div style="position:absolute;${s}font-family:Unbounded,sans-serif;font-size:${b.props.size||28}px;color:${b.props.color};font-weight:800">${esc(b.props.text)}</div>`;
+    if(b.type==='text') return `<div style="position:absolute;${s}font-family:Inter,sans-serif;font-size:${b.props.size||14}px;color:${b.props.color};background:${b.props.bg||'transparent'};border:${b.props.border?'1px solid '+b.props.border:'none'};border-radius:10px;padding:10px;white-space:pre-line">${esc(b.props.text)}</div>`;
+    if(b.type==='button') return `<a href="#" style="position:absolute;${s}display:flex;align-items:center;justify-content:center;background:${b.props.bg};color:${b.props.color};border-radius:${b.props.radius||10}px;font-family:Inter,sans-serif;font-weight:600;text-decoration:none">${esc(b.props.text)}</a>`;
+    if(b.type==='image') return `<div style="position:absolute;${s}background:${b.props.bg};border-radius:${b.props.radius||12}px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:42px">${b.props.src?`<img src="${b.props.src}" style="width:100%;height:100%;object-fit:cover">`:esc(b.props.emoji||'🖼️')}</div>`;
+    if(b.type==='form') return `<div style="position:absolute;${s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>${esc(b.props.title)}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>`;
     if(b.type==='divider') return `<div style="position:absolute;${s}background:${b.props.bg};height:1px"></div>`;
     return '';
   }).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#FAF9F7;font-family:Inter,sans-serif}.wrap{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden} </style></head><body><div class="wrap">${inner}</div></body></html>`;
 }
-function publish(){ save(); toast('Опубликовано (демо): ZIP готов через Экспорт'); }
+function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function publish(){ save(); toast('Опубликовано (демо): ZIP через Экспорт'); }
 
 function render(){
-  stage.innerHTML='';
+  stage.innerHTML='<div class="guides"><div class="guide-v" id="gv"></div><div class="guide-h" id="gh"></div></div>';
   blocks.slice().sort((a,b)=>a.z-b.z).forEach(b=>{
     const el=document.createElement('div');
     el.className='block'+(selected===b.id?' selected':'');
     el.style.left=b.x+'px'; el.style.top=b.y+'px'; el.style.width=b.w+'px'; el.style.height=b.h+'px'; el.style.zIndex=b.z;
     el.dataset.id=b.id;
     let inner='';
-    if(b.type==='heading') inner=`<div class="block-content" style="font-family:Unbounded,sans-serif;font-size:${b.props.size||28}px;font-weight:800;color:${b.props.color};display:flex;align-items:center">${b.props.text}</div>`;
-    else if(b.type==='text') inner=`<div class="block-content" style="font-family:Inter,sans-serif;font-size:${b.props.size||14}px;color:${b.props.color};background:${b.props.bg||'transparent'};border:${b.props.border?'1px solid '+b.props.border:'none'};border-radius:10px;white-space:pre-line">${b.props.text}</div>`;
-    else if(b.type==='button') inner=`<div class="block-content" style="display:flex;align-items:center;justify-content:center;background:${b.props.bg};color:${b.props.color};border-radius:${b.props.radius||10}px;font-weight:600">${b.props.text}</div>`;
-    else if(b.type==='image') inner=`<div class="block-content" style="display:flex;align-items:center;justify-content:center;background:${b.props.bg};border-radius:${b.props.radius||12}px;font-size:42px">${b.props.emoji||'🖼️'}${b.props.src?'<img src="'+b.props.src+'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px">':''}</div>`;
-    else if(b.type==='form') inner=`<div class="block-content" style="background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:10px"><b style="font-size:13px">${b.props.title}</b><div style="margin-top:8px;display:grid;gap:6px"><input placeholder="Имя" style="padding:8px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:8px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:8px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>`;
+    if(b.type==='heading') inner=`<div class="block-content" style="font-family:Unbounded,sans-serif;font-size:${b.props.size||28}px;font-weight:800;color:${b.props.color};display:flex;align-items:center">${esc(b.props.text)}</div>`;
+    else if(b.type==='text') inner=`<div class="block-content" style="font-family:Inter,sans-serif;font-size:${b.props.size||14}px;color:${b.props.color};background:${b.props.bg||'transparent'};border:${b.props.border?'1px solid '+b.props.border:'none'};border-radius:10px;white-space:pre-line">${esc(b.props.text)}</div>`;
+    else if(b.type==='button') inner=`<div class="block-content" style="display:flex;align-items:center;justify-content:center;background:${b.props.bg};color:${b.props.color};border-radius:${b.props.radius||10}px;font-weight:600">${esc(b.props.text)}</div>`;
+    else if(b.type==='image') inner=`<div class="block-content" style="display:flex;align-items:center;justify-content:center;background:${b.props.bg};border-radius:${b.props.radius||12}px;font-size:42px;overflow:hidden;position:relative">${b.props.src?`<img src="${b.props.src}" style="width:100%;height:100%;object-fit:cover">`:`<span>${esc(b.props.emoji||'🖼️')}</span>`}</div>`;
+    else if(b.type==='form') inner=`<div class="block-content" style="background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:10px"><b style="font-size:13px">${esc(b.props.title)}</b><div style="margin-top:8px;display:grid;gap:6px"><input placeholder="Имя" style="padding:8px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:8px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:8px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>`;
     else if(b.type==='divider') inner=`<div class="block-content" style="padding:0"><div style="height:2px;background:${b.props.bg};margin:10px 0"></div></div>`;
     el.innerHTML = inner + `<div class="handle nw" data-dir="nw"></div><div class="handle ne" data-dir="ne"></div><div class="handle sw" data-dir="sw"></div><div class="handle se" data-dir="se"></div><div class="handle n" data-dir="n"></div><div class="handle s" data-dir="s"></div><div class="handle w" data-dir="w"></div><div class="handle e" data-dir="e"></div>`;
     el.addEventListener('pointerdown', onPointerDown);
-    el.addEventListener('dblclick', ()=>{ if(b.type==='heading'||b.type==='text'||b.type==='button'){ const ed=el.querySelector('.block-content'); ed.contentEditable='true'; ed.focus(); ed.addEventListener('blur', ()=>{ b.props.text=ed.textContent; ed.contentEditable='false'; save(); renderProps(); }, {once:true}); }});
+    el.addEventListener('dblclick', ()=>{ if(b.type==='heading'||b.type==='text'||b.type==='button'){ const ed=el.querySelector('.block-content'); ed.contentEditable='true'; ed.focus(); document.execCommand('selectAll',false,null); ed.addEventListener('blur', ()=>{ b.props.text=ed.textContent; ed.contentEditable='false'; pushHist(); save(false); renderProps(); }, {once:true}); }});
+    // image click to change
+    if(b.type==='image'){ el.addEventListener('click', (e)=>{ if(e.target.closest('.handle')) return; /* select only, image change via props */ }); }
     stage.appendChild(el);
   });
   renderLayers(); renderProps();
@@ -180,60 +242,89 @@ function onPointerDown(e){
 let startX, startY, orig;
 function startDrag(e){
   const b=blocks.find(x=>x.id===selected); if(!b) return;
-  drag=b; orig={x:b.x, y:b.y}; startX=e.clientX; startY=e.clientY;
+  orig={x:b.x, y:b.y}; startX=e.clientX; startY=e.clientY;
+  const gv=document.getElementById('gv'), gh=document.getElementById('gh');
   e.currentTarget.setPointerCapture(e.pointerId);
-  const move=(ev)=>{ b.x = Math.round(orig.x + (ev.clientX-startX)); b.y = Math.round(orig.y + (ev.clientY-startY)); if(b.x<0)b.x=0; if(b.y<0)b.y=0; render(); };
-  const up=(ev)=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); save(); };
+  const move=(ev)=>{
+    let nx=orig.x + (ev.clientX-startX), ny=orig.y + (ev.clientY-startY);
+    nx=snap(nx); ny=snap(ny);
+    // guides: snap to other blocks edges/centers
+    let snapX=null, snapY=null;
+    for(const o of blocks){ if(o.id===b.id) continue; if(Math.abs(nx - o.x)<8) snapX=o.x; if(Math.abs((nx+b.w/2)-(o.x+o.w/2))<8) snapX=o.x+o.w/2 - b.w/2; if(Math.abs((nx+b.w)- (o.x+o.w))<8) snapX=o.x+o.w - b.w; if(Math.abs(ny - o.y)<8) snapY=o.y; if(Math.abs((ny+b.h/2)-(o.y+o.h/2))<8) snapY=o.y+o.h/2 - b.h/2; }
+    if(snapX!==null){ nx=snapX; gv.style.left=snapX+'px'; gv.style.display='block'; } else gv.style.display='none';
+    if(snapY!==null){ ny=snapY; gh.style.top=snapY+'px'; gh.style.display='block'; } else gh.style.display='none';
+    b.x=Math.max(0,nx); b.y=Math.max(0,ny); render();
+  };
+  const up=(ev)=>{ document.getElementById('gv').style.display='none'; document.getElementById('gh').style.display='none'; window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); pushHist(); save(false); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up);
 }
 function startResize(e, dir){
   const b=blocks.find(x=>x.id===selected); if(!b) return;
-  resize={dir, b, sx:e.clientX, sy:e.clientY, ox:b.x, oy:b.y, ow:b.w, oh:b.h};
+  const sx=e.clientX, sy=e.clientY, ox=b.x, oy=b.y, ow=b.w, oh=b.h;
   const move=(ev)=>{
-    const dx=ev.clientX-resize.sx, dy=ev.clientY-resize.sy;
-    let {x,y,w,h}=resize;
-    if(dir.includes('e')) w=resize.ow+dx;
-    if(dir.includes('s')) h=resize.oh+dy;
-    if(dir.includes('w')) {w=resize.ow-dx; b.x=resize.ox+dx;}
-    if(dir.includes('n')) {h=resize.oh-dy; b.y=resize.oy+dy;}
-    b.w=Math.max(40, Math.round(w)); b.h=Math.max(32, Math.round(h));
+    const dx=ev.clientX-sx, dy=ev.clientY-sy;
+    if(dir.includes('e')) b.w=snap(Math.max(40, ow+dx));
+    if(dir.includes('s')) b.h=snap(Math.max(32, oh+dy));
+    if(dir.includes('w')) {b.w=snap(Math.max(40, ow-dx)); b.x=snap(ox+dx);}
+    if(dir.includes('n')) {b.h=snap(Math.max(32, oh-dy)); b.y=snap(oy+dy);}
     render();
   };
-  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); save(); };
+  const up=()=>{ window.removeEventListener('pointermove',move); window.removeEventListener('pointerup',up); pushHist(); save(false); };
   window.addEventListener('pointermove',move); window.addEventListener('pointerup',up);
   e.preventDefault();
 }
 function select(id){ selected=id; render(); }
 function renderLayers(){
   const box=document.getElementById('layers'); box.innerHTML=blocks.slice().sort((a,b)=>b.z-a.z).map(b=> `<div class="layer ${b.id===selected?'active':''}" onclick="select('${b.id}')"><span>${b.type} · ${b.id}</span><span style="font-size:11px;color:#7A7A8E">${b.w}×${b.h}</span></div>`).join('');
+  document.getElementById('layer-count').textContent='· '+blocks.length;
 }
 function renderProps(){
   const p=document.getElementById('props-body');
   const b=blocks.find(x=>x.id===selected);
-  if(!b){ p.innerHTML='<div class="empty">Выбери блок</div>'; return; }
+  const imgTools=document.getElementById('image-tools');
+  if(!b){ p.innerHTML='<div class="empty">Выбери блок</div>'; imgTools.style.display='none'; return; }
+  imgTools.style.display = b.type==='image' ? 'block' : 'none';
+  if(b.type==='image') document.getElementById('img-url').value=b.props.src||'';
   let h=`<div class="field"><label>Тип</label><input value="${b.type}" disabled></div>`;
   h+=`<div class="row2"><div class="field"><label>X</label><input type="number" value="${b.x}" oninput="updateProp('x', this.value)"></div><div class="field"><label>Y</label><input type="number" value="${b.y}" oninput="updateProp('y', this.value)"></div></div>`;
   h+=`<div class="row2"><div class="field"><label>W</label><input type="number" value="${b.w}" oninput="updateProp('w', this.value)"></div><div class="field"><label>H</label><input type="number" value="${b.h}" oninput="updateProp('h', this.value)"></div></div>`;
   if(b.type==='heading'||b.type==='text'||b.type==='button'){
-    h+=`<div class="field"><label>Текст</label><textarea rows="2" oninput="updateText(this.value)">${b.props.text||''}</textarea></div>`;
+    h+=`<div class="field"><label>Текст</label><textarea rows="2" oninput="updateText(this.value)">${esc(b.props.text||'')}</textarea></div>`;
   }
   if(b.props.size!==undefined) h+=`<div class="field"><label>Размер шрифта</label><input type="number" value="${b.props.size}" oninput="updateStyle('size', +this.value)"></div>`;
   if(b.props.color) h+=`<div class="field"><label>Цвет текста</label><input type="color" value="${rgbToHex(b.props.color)||'#2B2B36'}" oninput="updateStyle('color', this.value)"></div>`;
-  if(b.props.bg) h+=`<div class="field"><label>Фон</label><input type="color" value="${rgbToHex(b.props.bg)||'#ffffff'}" oninput="updateStyle('bg', this.value)"></div>`;
+  if(b.props.bg!==undefined) h+=`<div class="field"><label>Фон</label><input type="color" value="${rgbToHex(b.props.bg)||'#ffffff'}" oninput="updateStyle('bg', this.value)"></div>`;
   if(b.type==='button') h+=`<div class="field"><label>Скругление</label><input type="range" min="0" max="24" value="${b.props.radius||10}" oninput="updateStyle('radius', +this.value)"><span class="hint2">${b.props.radius||10}px</span></div>`;
+  if(b.type==='text'&&b.props.border!==undefined) h+=`<div class="field"><label>Рамка</label><input type="color" value="${rgbToHex(b.props.border)||'#E7E5F0'}" oninput="updateStyle('border', this.value)"></div>`;
   p.innerHTML=h;
 }
-function updateProp(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b[k]=+v; render(); save(); }
+function updateProp(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b[k]=+v; render(); }
 function updateText(v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.props.text=v; render(); }
-function updateStyle(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.props[k]=v; render(); save(); }
-function rgbToHex(c){ if(!c||c==='transparent') return '#ffffff'; if(c.startsWith('#')) return c; const m=c.match(/\d+/g); if(!m) return '#000000'; return '#'+m.slice(0,3).map(x=> (+x).toString(16).padStart(2,'0')).join(''); }
-function duplicate(){ const b=blocks.find(x=>x.id===selected); if(!b) return; const nb=JSON.parse(JSON.stringify(b)); nb.id=uid(); nb.x+=20; nb.y+=20; nb.z=blocks.length+1; blocks.push(nb); render(); select(nb.id); save(); }
-function remove(){ blocks=blocks.filter(x=>x.id!==selected); selected=null; render(); save(); }
-function bringFront(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.max(...blocks.map(x=>x.z))+1; render(); save(); }
-function sendBack(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.min(...blocks.map(x=>x.z))-1; render(); save(); }
+function updateStyle(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.props[k]=v; render(); save(false); }
+function updateImageUrl(v){ const b=blocks.find(x=>x.id===selected); if(!b||b.type!=='image') return; b.props.src=v; render(); save(false); }
+function uploadImage(file){ if(!file) return; const b=blocks.find(x=>x.id===selected); if(!b) return; const r=new FileReader(); r.onload=e=>{ b.props.src=e.target.result; b.props.emoji=''; render(); save(false); }; r.readAsDataURL(file); }
+function rgbToHex(c){ if(!c||c==='transparent') return '#ffffff'; if(c.startsWith('#')) return c; if(c.startsWith('rgb')){ const m=c.match(/\d+/g); if(!m) return '#000000'; return '#'+m.slice(0,3).map(x=> (+x).toString(16).padStart(2,'0')).join(''); } return '#000000'; }
+function duplicate(){ const b=blocks.find(x=>x.id===selected); if(!b) return; const nb=JSON.parse(JSON.stringify(b)); nb.id=uid(); nb.x=snap(nb.x+20); nb.y=snap(nb.y+20); nb.z=Math.max(...blocks.map(x=>x.z))+1; blocks.push(nb); pushHist(); render(); select(nb.id); save(false); }
+function remove(){ const idx=blocks.findIndex(x=>x.id===selected); if(idx<0) return; blocks.splice(idx,1); selected=null; pushHist(); render(); save(false); }
+function bringFront(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.max(...blocks.map(x=>x.z))+1; pushHist(); render(); save(false); }
+function sendBack(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.min(...blocks.map(x=>x.z))-1; pushHist(); render(); save(false); }
 function toast(m){ const t=document.createElement('div'); t.textContent=m; t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2B2B36;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;z-index:99'; document.body.appendChild(t); setTimeout(()=>t.remove(),1800); }
-stage.addEventListener('pointerdown', e=>{ if(e.target===stage) selected=null, render(); });
-render();
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
+  if(e.key==='Delete' && selected && document.activeElement.tagName!=='INPUT' && document.activeElement.tagName!=='TEXTAREA'){ remove(); }
+  if(selected && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key) && !e.target.isContentEditable && e.target.tagName!=='INPUT' && e.target.tagName!=='TEXTAREA'){
+    e.preventDefault(); const b=blocks.find(x=>x.id===selected); if(!b) return; const step=e.shiftKey?10:1;
+    if(e.key==='ArrowUp') b.y=Math.max(0,b.y-step);
+    if(e.key==='ArrowDown') b.y+=step;
+    if(e.key==='ArrowLeft') b.x=Math.max(0,b.x-step);
+    if(e.key==='ArrowRight') b.x+=step;
+    b.x=snap(b.x); b.y=snap(b.y); render();
+  }
+});
+stage.addEventListener('pointerdown', e=>{ if(e.target===stage) {selected=null; render();} });
+snapEl.addEventListener('change', ()=> stage.classList.toggle('snap', snapEl.checked));
+render(); pushHist();
 </script>
 </body>
 </html>
