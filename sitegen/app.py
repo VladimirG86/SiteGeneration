@@ -39,7 +39,7 @@ SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or 587)
 SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
-SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@sborka.ai").strip()
+SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@nelvi.app").strip()
 
 AUTH_CODE_TTL = 600       # код живёт 10 минут
 AUTH_RESEND_COOLDOWN = 44  # как таймер на фронте
@@ -265,7 +265,7 @@ def export_site(job_id: str, request: Request):
         z.writestr("index.html", html)
         readme = (
             f"Сайт: {brand}\n"
-            f"Экспорт из СБОРКА — {job_id}\n\n"
+            f"Экспорт из Nelvi — {job_id}\n\n"
             "Как залить на свой хостинг:\n"
             "1. Распакуйте архив в корень сайта (где лежит index.html).\n"
             "2. Загрузите index.html по FTP/SFTP или через панель хостинга.\n"
@@ -307,7 +307,7 @@ def publish_wp(job_id: str, body: WpPublishIn, request: Request):
     status = body.status.strip().lower()
     if status not in ("draft", "publish", "private"):
         status = "draft"
-    title = (site.get("brand") or "Сайт из СБОРКА")[:120]
+    title = (site.get("brand") or "Сайт из Nelvi")[:120]
 
     import base64
     import httpx
@@ -566,7 +566,7 @@ def publish_static(job_id: str, request: Request):
             st.save_bytes(f"sites/{job_id}.html", html.encode())
     except Exception:
         pass
-    return {"ok": True, "url": public_url, "hosting": "sborka"}
+    return {"ok": True, "url": public_url, "hosting": "nelvi"}
 
 
 @app.get("/api/job/{job_id}")
@@ -757,7 +757,7 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
 
 def _send_code_email(to_email: str, code: str):
     msg = EmailMessage()
-    msg["Subject"] = f"Ваш код для СБОРКА: {code}"
+    msg["Subject"] = f"Ваш код для Nelvi: {code}"
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
     msg.set_content(

@@ -1,43 +1,45 @@
 <!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>СБОРКА — демо на GitHub Pages</title>
-<meta name="description" content="Генератор сайтов, taplink и QR-визиток — демо трёх типов страниц">
+<title>Nelvi — демо на GitHub Pages · сайт за вечер без кода</title>
+<meta name="description" content="Nelvi — конструктор сайтов для всех. Генератор создаёт лендинг, taplink и QR-визитку — три примера ниже.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="static/style.css">
 <style>
 .hero-card{max-width:720px;margin:0 auto}
+.hero-card h1{font-family:'Unbounded',sans-serif}
 .badges{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
-.badges span{font-size:12px;font-weight:700;padding:6px 10px;border-radius:999px;background:#efe7ff;color:#6d28d9}
+.badges span{font-family:'Inter',sans-serif;font-size:12px;font-weight:700;padding:6px 10px;border-radius:999px;background:#EDEFFF;color:#5B5FEF}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px}
 @media(max-width:640px){.grid3{grid-template-columns:1fr}}
 .demo-card{border:1px solid var(--border);border-radius:16px;padding:18px;background:var(--card);text-align:left;display:flex;flex-direction:column;gap:10px}
-.demo-card h3{font-size:16px;margin:0}
-.demo-card p{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0;flex:1}
-.demo-card a.btn{justify-content:center}
-.note{margin-top:18px;font-size:13px;color:var(--muted);background:var(--field);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.demo-card h3{font-family:'Unbounded',sans-serif;font-size:15px;font-weight:600;margin:0}
+.demo-card p{color:var(--muted);font-family:'Inter',sans-serif;font-size:13.5px;line-height:1.5;margin:0;flex:1}
+.demo-card a.btn{justify-content:center;font-family:'Inter',sans-serif}
+.note{margin-top:18px;font-family:'Inter',sans-serif;font-size:13px;color:var(--muted);background:var(--field);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
 </style>
 </head><body>
 <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-<header class="topbar"><a class="brand" href="./"><svg viewBox="0 0 24 24" fill="none" stroke="url(#lg)" stroke-width="1.8" stroke-linejoin="round" width="26" height="26"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><path d="M12 2l2.2 6.3L21 10.5l-6.8 2.2L12 19l-2.2-6.3L3 10.5l6.8-2.2L12 2z"/><path d="M19 16l.9 2.6L22.5 19.5l-2.6.9L19 23l-.9-2.6-2.6-.9 2.6-.9L19 16z"/></svg><span>СБОРКА<b>.ai</b></span></a></header>
+<header class="topbar"><a class="brand" href="./"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" width="20" height="20"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span><span>Nelvi</span><span class="tagline">конструктор сайтов для всех</span></a></header>
 <main><section class="screen"><div class="card narrow center hero-card">
-<div class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" width="26" height="26"><path d="M12 2l2.2 6.3L21 10.5l-6.8 2.2L12 19l-2.2-6.3L3 10.5l6.8-2.2L12 2z"/></svg></div>
-<h1>СБОРКА — демо на GitHub Pages</h1>
-<p class="sub">Генератор создаёт <b>лендинг</b>, <b>taplink</b> (мультиссылка как taplink.ru) и <b>QR-визитку</b> (как myqrcards.com). Ниже — три готовых примера, сгенерированных нашим бекендом.</p>
-<div class="badges"><span>landing + taplink + vcard</span><span>QR + .vcf</span><span>без бэкенда на Pages</span></div>
+<div class="app-icon"><svg viewBox="0 0 24 24" fill="none" width="28" height="28"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></div>
+<h1>Сайт за вечер.<br>Без кода.</h1>
+<p class="sub">Собирай страницы блоками, публикуй в один клик и не думай про технические детали — <b>Nelvi</b> берёт это на себя. Генератор делает <b>лендинг</b>, <b>taplink</b> и <b>QR-визитку</b> — три примера ниже.</p>
+<div class="badges"><span>landing + taplink + vcard</span><span>QR + .vcf</span><span>Nelvi · #5B5FEF · #FF7A59 · #2EC4B6</span></div>
 <div class="grid3">
   <div class="demo-card">
-    <div style="font-size:22px">☕</div><h3>Лендинг — Кофейня «Утро»</h3><p>Хиро, услуги, преимущества, меню, FAQ и форма заявки. Светлая тема, акцент orange.</p><a class="btn-grad" href="demo/landing.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;text-decoration:none;font-weight:700;justify-content:center">Открыть →</a>
+    <div style="font-size:22px">☕</div><h3>Лендинг — Кофейня «Утро»</h3><p>Хиро, услуги, преимущества, меню, FAQ и форма заявки. Светлая тема Nelvi, акцент coral.</p><a class="btn-grad" href="demo/landing.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#5B5FEF;color:#fff;text-decoration:none;font-weight:600;justify-content:center;font-family:'Inter',sans-serif">Открыть →</a>
   </div>
   <div class="demo-card">
-    <div style="font-size:22px">🔗</div><h3>Taplink — Иван Петров</h3><p>Узкая лента 520px: аватар, био, кнопки-ссылки, соцсети и мессенджеры в один клик.</p><a class="btn-grad" href="demo/taplink.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;text-decoration:none;font-weight:700;justify-content:center">Открыть →</a>
+    <div style="font-size:22px">🔗</div><h3>Taplink — Иван Петров</h3><p>Узкая лента 520px: аватар, био, кнопки-ссылки, соцсети и мессенджеры в один клик.</p><a class="btn-grad" href="demo/taplink.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#5B5FEF;color:#fff;text-decoration:none;font-weight:600;justify-content:center;font-family:'Inter',sans-serif">Открыть →</a>
   </div>
   <div class="demo-card">
-    <div style="font-size:22px">💳</div><h3>QR-визитка — Анна Смирнова</h3><p>QR на https://…, «Сохранить контакт» (.vcf в браузере) и «Поделиться» (Web Share).</p><a class="btn-grad" href="demo/vcard.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;text-decoration:none;font-weight:700;justify-content:center">Открыть →</a>
+    <div style="font-size:22px">💳</div><h3>QR-визитка — Анна Смирнова</h3><p>QR на https://…, «Сохранить контакт» (.vcf в браузере) и «Поделиться» (Web Share).</p><a class="btn-grad" href="demo/vcard.html" target="_blank" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#5B5FEF;color:#fff;text-decoration:none;font-weight:600;justify-content:center;font-family:'Inter',sans-serif">Открыть →</a>
   </div>
 </div>
-<div class="note">💡 Полный редактор живёт на бекенде (FastAPI). На Pages — статический экспорт демо. Чтобы попробовать генерацию с ИИ, запустите <code>docker-compose up</code> или откройте предпросмотр в Arena.<br><br><b>Ссылки:</b> <a href="https://github.com/VladimirG86/SiteGeneration">репозиторий</a> · <a href="demo/landing.html">landing</a> · <a href="demo/taplink.html">taplink</a> · <a href="demo/vcard.html">vcard</a></div>
-<p style="margin-top:14px;font-size:12px;color:var(--muted)">Deployed from <code>arena/01a0c97a-sitegeneration</code> · docs/ → GitHub Pages</p>
+<div class="note">💡 Полный редактор живёт на бекенде (FastAPI). На Pages — статический экспорт демо. Чтобы попробовать генерацию с ИИ, запустите <code>docker-compose up</code> или откройте предпросмотр в Arena.<br><br><b>Ссылки:</b> <a href="https://github.com/VladimirG86/SiteGeneration" style="color:#5B5FEF">репозиторий</a> · <a href="demo/landing.html" style="color:#5B5FEF">landing</a> · <a href="demo/taplink.html" style="color:#5B5FEF">taplink</a> · <a href="demo/vcard.html" style="color:#5B5FEF">vcard</a> · <a href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" style="color:#5B5FEF">бренд-борд Nelvi</a></div>
+<p style="margin-top:14px;font-family:'Inter',sans-serif;font-size:12px;color:var(--muted)">Deployed from <code>arena/01a0c97a-sitegeneration</code> · Nelvi · docs/ → GitHub Pages · палитра #5B5FEF #FF7A59 #2EC4B6 #FAF9F7 #2B2B36</p>
 </div></section></main>
 </body></html>

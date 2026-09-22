@@ -92,7 +92,7 @@ def _validate_wp_url(url: str) -> str:
 def fetch_html(url: str) -> tuple[str, str]:
     """Скачивает HTML. Возвращает (html, final_url). Бросает RuntimeError."""
     headers = {
-        "User-Agent": "SborkaImport/1.0 (+https://sborka.ai)",
+        "User-Agent": "NelviImport/1.0 (+https://nelvi.app)",
         "Accept": "text/html,application/xhtml+xml",
         "Accept-Language": "ru,en;q=0.8",
     }
@@ -302,7 +302,7 @@ def _download_image_bytes(url: str, timeout: float = 9.0, max_bytes: int = 4_500
         return None
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=3,
-                          headers={"User-Agent": "SborkaImport/1.0"}) as cl:
+                          headers={"User-Agent": "NelviImport/1.0"}) as cl:
             r = cl.get(url)
             r.raise_for_status()
             ctype = r.headers.get("content-type", "")
@@ -353,7 +353,7 @@ def _fetch_text_quick(url: str, timeout: float = 7.0) -> str | None:
         return None
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=3,
-                          headers={"User-Agent": "SborkaImport/1.0"}) as cl:
+                          headers={"User-Agent": "NelviImport/1.0"}) as cl:
             r = cl.get(url)
             r.raise_for_status()
             return r.text[:600_000]

@@ -1,10 +1,10 @@
-/* СБОРКА: логика мастера создания сайта (vanilla JS, без зависимостей) */
+/* Nelvi — конструктор сайтов для всех · логика мастера (vanilla JS) */
 'use strict';
 
 const $ = (s, r = document) => r.querySelector(s);
 
 /* ---------------------------------------------------------------- state -- */
-const LS_KEY = 'sborka_state_v1';
+const LS_KEY = 'nelvi_state_v1';
 const state = {
   step: -1, // -1 = welcome
   kind: 'landing', // landing | taplink | vcard
@@ -168,7 +168,7 @@ function bindButtons() {
   const stay = $('#btn-publish-stay');
   if (stay) stay.addEventListener('click', () => {
     const h = $('#publish-hint');
-    h.textContent = 'Готово: сайт остаётся на СБОРКА. Ссылка — ' + (state.editorJob ? (location.origin + '/api/site/' + state.editorJob) : 'появится после генерации') + ' — можете открыть редактор.';
+    h.textContent = 'Готово: сайт остаётся на Nelvi. Ссылка — ' + (state.editorJob ? (location.origin + '/api/site/' + state.editorJob) : 'появится после генерации') + ' — можете открыть редактор.';
     h.style.display = 'block';
   });
   const wpBtn = $('#btn-publish-wp');
