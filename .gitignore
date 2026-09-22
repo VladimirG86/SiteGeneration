@@ -1,0 +1,20 @@
+# --- secrets: никогда не коммитим ключи ---
+.env
+sitegen/.env
+*.env
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- сгенерированные сайты: артефакты, а не исходники ---
+# (примеры-витрины лежат отдельно: sitegen/sample-*.html)
+sitegen/sites/*.html
+sitegen/sites/*.json
+sitegen/sites/assets/
+
+# --- окружение и ОС ---
+.venv/
+venv/
+.DS_Store
