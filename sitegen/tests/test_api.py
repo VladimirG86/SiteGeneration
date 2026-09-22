@@ -15,15 +15,6 @@ import llm
 import sections
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(generator, "SITES_DIR", str(tmp_path))
-    monkeypatch.setattr(appmod, "_RATE", {})
-    monkeypatch.setattr(llm, "API_KEY", "")     # демо-режим, без сети
-    monkeypatch.setattr(images, "API_KEY", "")
-    return TestClient(appmod.app)
-
-
 def _poll_done(client, job_id, timeout=60):
     deadline = time.time() + timeout
     while time.time() < deadline:

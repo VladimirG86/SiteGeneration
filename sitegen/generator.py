@@ -37,6 +37,14 @@ STAGES = [
     {"key": "art", "title": "Рисуем изображения", "hint": "Графика и оформление темы"},
 ]
 
+IMPORT_STAGES = [
+    {"key": "fetch", "title": "Загружаем сайт", "hint": "Скачиваем страницу по ссылке"},
+    {"key": "extract", "title": "Разбираем содержимое", "hint": "Вытаскиваем тексты, контакты и структуру"},
+    {"key": "adapt", "title": "Переносим в конструктор", "hint": "ИИ переписывает под вашу тему"},
+    {"key": "build", "title": "Верстаем страницу", "hint": "Собираем секции в готовую страницу"},
+    {"key": "art", "title": "Готовим к редактору", "hint": "Финализируем и сохраняем"},
+]
+
 MAX_VERSIONS = 12
 
 _JOBS = {}
@@ -109,6 +117,17 @@ def get_site_html(job_id: str):
     return None
 
 
+def get_site_dict(job_id: str):
+    p = _paths(job_id)["site"]
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    job = _JOBS.get(job_id)
+    if job and job.get("site"):
+        return job["site"]
+    return None
+
+
 def get_version(job_id: str) -> int:
     return len(_load_history(job_id))
 
@@ -118,13 +137,17 @@ def get_job(job_id: str):
         job = _JOBS.get(job_id)
         if not job:
             return None
+        stages = IMPORT_STAGES if job.get("kind") == "import" else STAGES
+        total = len(stages)
         return {
             "id": job_id,
             "status": job["status"],
             "stage": job["stage"],
-            "stages": [s["title"] for s in STAGES],
-            "hints": [s["hint"] for s in STAGES],
-            "progress": round(job["stage"] / len(STAGES) * 100) if job["status"] != "done" else 100,
+            "kind": job.get("kind", "generate"),
+            "source_url": job.get("source_url"),
+            "stages": [s["title"] for s in stages],
+            "hints": [s["hint"] for s in stages],
+            "progress": round(job["stage"] / total * 100) if job["status"] != "done" else 100,
             "warning": job.get("warning"),
             "error": job.get("error"),
             "site_url": f"/api/site/{job_id}" if job["status"] == "done" else None,
@@ -239,6 +262,7 @@ def start_job(answers: dict, theme_mode: str, accent: str) -> str:
     with _LOCK:
         _JOBS[job_id] = {
             "id": job_id,
+            "kind": "generate",
             "status": "running",
             "stage": 0,
             "answers": answers,
@@ -247,6 +271,77 @@ def start_job(answers: dict, theme_mode: str, accent: str) -> str:
             "created": time.time(),
         }
     threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
+    return job_id
+
+
+# ------------------------------------------------------------ импорт ----
+
+def run_import_job(job_id: str):
+    job = _JOBS.get(job_id)
+    if not job:
+        return
+    url = job.get("source_url", "")
+    theme_mode = job["theme"]["mode"]
+    accent = job["theme"]["accent"]
+    try:
+        # 0. Загружаем
+        _set_stage(job, 0)
+        time.sleep(0.6)
+        import importer
+        html, final_url = importer.fetch_html(url)
+        # 1. Разбираем
+        _set_stage(job, 1)
+        signals = importer.extract_signals(html, final_url)
+        time.sleep(0.5)
+        # 2. Адаптируем (LLM или эвристика)
+        _set_stage(job, 2)
+        warning = None
+        try:
+            site = importer.build_llm_site(signals, theme_mode, accent)
+        except Exception as e:  # noqa: BLE001
+            site = importer.heuristic_site(signals, theme_mode, accent)
+            # нормализуем уже внутри heuristic, но на случай
+            site = chat_ops.normalize_site(site)
+            warning = f"ИИ-перенос с оговорками ({e}) — проверьте тексты."
+        time.sleep(0.4)
+        # 3. Вёрстка
+        _set_stage(job, 3)
+        site["theme"] = {"mode": theme_mode, "accent": accent}
+        site["import_source"] = final_url
+        site["features"] = site.get("features") or {"cart": False}
+        chat_ops.ensure_ids(site)
+        html_out = sections.render_page(site, site_id=job_id)
+        time.sleep(0.6)
+        # 4. Финализация (пока без картинок — оставляем оригинальную цветовую идею)
+        _set_stage(job, 4)
+        time.sleep(0.4)
+        job["html"] = html_out
+        job["warning"] = warning
+        job["status"] = "done"
+        _save_all(job_id, site, html_out, push_version=True)
+    except Exception as e:  # noqa: BLE001
+        job["status"] = "error"
+        job["error"] = str(e)
+
+
+def start_import_job(source_url: str, theme_mode: str = "light", accent: str = "purple") -> str:
+    if theme_mode not in design.MODES:
+        theme_mode = "light"
+    if accent not in design.ACCENTS:
+        accent = "purple"
+    job_id = uuid.uuid4().hex[:10]
+    with _LOCK:
+        _JOBS[job_id] = {
+            "id": job_id,
+            "kind": "import",
+            "status": "running",
+            "stage": 0,
+            "source_url": source_url,
+            "theme": {"mode": theme_mode, "accent": accent},
+            "chat": [],
+            "created": time.time(),
+        }
+    threading.Thread(target=run_import_job, args=(job_id,), daemon=True).start()
     return job_id
 
 

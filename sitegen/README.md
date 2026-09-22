@@ -95,14 +95,16 @@ export SITEGEN_MODEL_FAST="deepseek/deepseek-v4-pro-0813"  # подсказки-
 
 ```
 static/  — SPA-мастер + ИИ-редактор (vanilla JS, без зависимостей)
-app.py   — FastAPI: /api/analyze · /api/generate · /api/job · /api/site
+app.py   — FastAPI: /api/analyze · /api/generate · /api/import · /api/job · /api/site
                                /api/chat/{id} · /api/chat/stream/{id} (SSE) · /api/undo/{id}
                                /api/lead(s) · /api/auth/code · /api/auth/verify
-generator.py — пайплайн 5 этапов, версии правок (undo), история чата
+                               /api/export/{id} (ZIP) · /api/publish/wp/{id}
+generator.py — пайплайн 5 этапов (generate/import), версии правок (undo), история чата
+importer.py  — перенос любого сайта по URL: fetch → extract_signals → LLM/эвристика → normalize_site
 chat.py      — ГЛАВНЫЙ ФАЙЛ РЕДАКТОРА: промпт агента, 10 операций,
                id-адресация секций, sanitize/normalize (белые списки, лимиты) —
                защита от вольностей LLM
-prompts.py   — промпты генерации сайта и чипов + нишевые гайды (тон, якоря цен, FAQ)
+prompts.py   — промпты генерации/импорта и чипов + нишевые гайды (тон, якоря цен, FAQ)
 llm.py       — клиент RouterAI (OpenAI-совместимый) + .env + извлечение JSON
 images.py    — генерация изображений (/api/v1/images): hero + фото товаров,
                промпты, постобработка (Pillow → webp), кэш data URI
@@ -151,7 +153,7 @@ sites/       — сайты: {id}.json (структура) + {id}.html + {id}.h
 ## Тесты и защита
 
 ```bash
-python3 -m pytest tests/ -q   # 31 тест: ниши, редактор, демо-генератор, промпты, API
+python3 -m pytest tests/ -q   # 45 тестов: ниши, редактор, импорт, демо-генератор, промпты, API
 ```
 
 - Тесты не ходят в сеть: LLM/картинки либо выключены (чистый демо-путь),
@@ -171,6 +173,20 @@ python3 -m pytest tests/ -q   # 31 тест: ниши, редактор, дем�
 (тот же JSON, что у POST `/api/chat`) или `error`; каждые ~15 с простоя —
 `ping`. Фронт использует SSE, при обрыве молча откатывается на POST + опрос
 `GET /api/chat/progress/{id}`.
+
+## Перенос любого сайта и публикация на выбор
+
+**Вход — два пути на welcome-экране:** `Создать с нуля` (анкета) или `Перенести сайт по ссылке`.
+
+**Импорт (`POST /api/import {url}`):**
+- Вставьте `https://example.com` → фоновая задача `IMPORT_STAGES`: Загружаем → Разбираем → Переносим → Верстаем → Готовим.
+- `importer.py`: SSRF-защита (режет private/local/loopback, лимит 2.5 МБ, 12 с), вытаскивает `title/h1/h2/p/phones/emails/colors/text_dump` регулярками (без bs4), LLM переписывает в нашу схему (`prompts.build_import_messages`) с фолбэком `heuristic_site` без ключа.
+- Источник сохраняется (`site.import_source`), тема берётся из выбранного акцента. Дальше — тот же редактор и чат.
+
+**Публикация — выбор на result и в редакторе (`Публикация`):**
+- **Оставить на СБОРКА:** сайт уже живёт по `/api/site/{id}` (домен подключите позже, как поддомены `*.вашдомен.ru` в проде).
+- **Скачать ZIP:** `GET /api/export/{id}` → `index.html` + `README.txt` (залейте по FTP на любой хостинг; сайт самодостаточен — data-URI + Google Fonts).
+- **Отправить в WordPress:** `POST /api/publish/wp/{id} {wp_url, username, app_password, status}` → Basic Auth → `POST {wp_url}/wp-json/wp/v2/pages` (фолбэк на `/posts`), контент завёрнут в `<!-- wp:html -->`.
 
 ## Оценка качества (eval)
 

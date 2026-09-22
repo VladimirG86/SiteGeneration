@@ -62,6 +62,9 @@ RATE_LIMITS = {
     "analyze": (120, 3600),   # чипы-подсказки
     "lead": (120, 3600),      # заявки с сайтов
     "auth": (30, 3600),       # email-коды
+    "import": (20, 3600),     # импорт по URL
+    "export": (60, 3600),
+    "publish": (20, 3600),
 }
 _RATE = {}
 _RATE_LOCK = threading.Lock()
@@ -135,6 +138,19 @@ class AuthVerifyIn(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
 
+class ImportIn(BaseModel):
+    url: str = Field(min_length=5, max_length=2048)
+    theme_mode: str = Field(default="light")
+    accent: str = Field(default="purple")
+
+
+class WpPublishIn(BaseModel):
+    wp_url: str = Field(min_length=5, max_length=2048)
+    username: str = Field(min_length=1, max_length=120)
+    app_password: str = Field(min_length=4, max_length=256)
+    status: str = Field(default="draft")  # draft | publish
+
+
 # ------------------------------------------------------------------- api ----
 
 @app.get("/api/config")
@@ -193,6 +209,115 @@ def generate(body: GenerateIn, request: Request):
     }
     job_id = generator.start_job(answers, body.theme_mode, body.accent)
     return {"job_id": job_id}
+
+
+@app.post("/api/import")
+def import_site(body: ImportIn, request: Request):
+    """Импорт произвольного сайта по URL: валидация -> фоновая задача."""
+    if _limited(request, "import"):
+        return _too_many("import")
+    if body.theme_mode not in design.MODES:
+        body.theme_mode = "light"
+    if body.accent not in design.ACCENTS:
+        body.accent = "purple"
+    try:
+        import importer
+        url = importer.validate_url(body.url)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    job_id = generator.start_import_job(url, body.theme_mode, body.accent)
+    return {"job_id": job_id, "source_url": url}
+
+
+@app.get("/api/export/{job_id}")
+def export_site(job_id: str, request: Request):
+    """Экспорт сайта: ZIP с index.html (+ инструкция для заливки на свой хостинг)."""
+    if _limited(request, "export"):
+        return _too_many("export")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    html = generator.get_site_html(job_id)
+    if not html:
+        return _no_job()
+    import io
+    import zipfile
+    site = generator.get_site_dict(job_id) or {}
+    brand = (site.get("brand") or job_id).strip()[:40] or job_id
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("index.html", html)
+        readme = (
+            f"Сайт: {brand}\n"
+            f"Экспорт из СБОРКА — {job_id}\n\n"
+            "Как залить на свой хостинг:\n"
+            "1. Распакуйте архив в корень сайта (где лежит index.html).\n"
+            "2. Загрузите index.html по FTP/SFTP или через панель хостинга.\n"
+            "3. Сайт — один самодостаточный файл: картинки встроены как data-URI, шрифты — Google Fonts.\n"
+            "4. Форма заявок по умолчанию шлёт на /api/lead — замените action на свой обработчик или оставьте как есть если оставляете у нас.\n"
+        )
+        z.writestr("README.txt", readme)
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="site-{job_id}.zip"'},
+    )
+
+
+@app.post("/api/publish/wp/{job_id}")
+def publish_wp(job_id: str, body: WpPublishIn, request: Request):
+    """Публикация в WordPress: создаёт страницу через WP REST API."""
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    html = generator.get_site_html(job_id)
+    if not html:
+        return _no_job()
+    site = generator.get_site_dict(job_id) or {}
+    try:
+        import importer
+        wp_base = importer._validate_wp_url(body.wp_url)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    status = body.status.strip().lower()
+    if status not in ("draft", "publish", "private"):
+        status = "draft"
+    # готовим полезную нагрузку WP
+    title = (site.get("brand") or "Сайт из СБОРКА")[:120]
+    # заворачиваем HTML в <!-- wp:html --> чтобы WP не резал
+    wp_content = f"<!-- wp:html -->\n{html}\n<!-- /wp:html -->"
+    payload = {"title": title, "content": wp_content, "status": status}
+    # http basic auth: username: app_password
+    import base64
+    import httpx
+    creds = base64.b64encode(f"{body.username}:{body.app_password}".encode()).decode()
+    # пробуем оба эндпоинта: /wp-json/wp/v2/pages и /wp-json/wp/v2/posts (страница предпочтительнее)
+    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+    endpoint = wp_base.rstrip("/") + "/wp-json/wp/v2/pages"
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            r = client.post(endpoint, json=payload, headers=headers)
+            if r.status_code == 404:
+                # фолбэк на записи если страницы закрыты
+                endpoint2 = wp_base.rstrip("/") + "/wp-json/wp/v2/posts"
+                r = client.post(endpoint2, json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            link = data.get("link") or data.get("guid", {}).get("rendered") or wp_base
+            return {"ok": True, "url": link, "id": data.get("id"), "endpoint": endpoint}
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code if e.response is not None else "?"
+        detail = ""
+        try:
+            j = e.response.json()
+            detail = j.get("message") or str(j)[:400]
+        except Exception:
+            detail = (e.response.text[:400] if e.response is not None else "")
+        return JSONResponse({"error": f"WordPress вернул HTTP {code}: {detail}"}, status_code=502)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"Не удалось связаться с WordPress: {e}"}, status_code=502)
 
 
 @app.get("/api/job/{job_id}")

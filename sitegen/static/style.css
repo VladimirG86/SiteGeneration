@@ -286,4 +286,5 @@ h2{font-size:25px;letter-spacing:-.02em;line-height:1.2;font-weight:800}
   .preview-frame{height:380px}
   .row-2{grid-template-columns:1fr}
   .sum-row{flex-direction:column;gap:6px}
+  .publish-choice > div{grid-template-columns:1fr!important}
 }

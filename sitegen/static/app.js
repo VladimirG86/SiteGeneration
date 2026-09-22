@@ -139,16 +139,48 @@ async function fetchConfig() {
       { id: 'emerald', label: 'Изумруд', hex: '#059669' }, { id: 'orange', label: 'Оранжевый', hex: '#ea580c' },
       { id: 'rose', label: 'Малиновый', hex: '#e11d48' }, { id: 'teal', label: 'Бирюзовый', hex: '#0d9488' }];
   }
+  // сбрасываем кэш акцентов импорта, чтобы после загрузки конфига отрисовались правильные
+  const ir = document.getElementById('import-accent-row');
+  if (ir) delete ir.dataset.done;
 }
 
 function bindButtons() {
   $('#btn-start').addEventListener('click', () => goStep(0));
+  $('#btn-import-start').addEventListener('click', () => openImport());
+  $('#btn-import').addEventListener('click', startImport);
+  $('#btn-import-back').addEventListener('click', () => showScreen('welcome'));
+  $('#btn-import-demo').addEventListener('click', () => {
+    $('#import-url').value = 'https://example.com';
+    $('#import-url').dispatchEvent(new Event('input'));
+  });
+  $('#import-url').addEventListener('input', validateImport);
+  $('#import-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); startImport(); } });
   $('#btn-back').addEventListener('click', () => goStep(Math.max(0, state.step - 1)));
   $('#btn-next').addEventListener('click', nextStep);
   $('#modal-close').addEventListener('click', closeModal);
   $('#modal-ok').addEventListener('click', closeModal);
   $('#modal').addEventListener('click', (e) => { if (e.target === $('#modal')) closeModal(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  // publish choice
+  const stay = $('#btn-publish-stay');
+  if (stay) stay.addEventListener('click', () => {
+    const h = $('#publish-hint');
+    h.textContent = 'Готово: сайт остаётся на СБОРКА. Ссылка — ' + (state.editorJob ? (location.origin + '/api/site/' + state.editorJob) : 'появится после генерации') + ' — можете открыть редактор.';
+    h.style.display = 'block';
+  });
+  const wpBtn = $('#btn-publish-wp');
+  if (wpBtn) wpBtn.addEventListener('click', () => openPublishModal());
+  $('#publish-close').addEventListener('click', closePublishModal);
+  $('#publish-ok').addEventListener('click', closePublishModal);
+  $('#publish-modal').addEventListener('click', (e) => { if (e.target === $('#publish-modal')) closePublishModal(); });
+  $('#btn-wp-send').addEventListener('click', sendToWp);
+  const expZip = $('#btn-export-zip');
+  if (expZip) expZip.addEventListener('click', () => {
+    // href уже выставлен, просто закроем через секунду
+    setTimeout(() => closePublishModal(), 400);
+  });
+  const edPub = $('#ed-publish');
+  if (edPub) edPub.addEventListener('click', () => openPublishModal());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); closePublishModal(); } });
 
   /* code screen */
   $('#code-input').addEventListener('input', (e) => {
@@ -176,7 +208,7 @@ function bindButtons() {
 
 /* ------------------------------------------------------------ screens ---- */
 function showScreen(name) {
-  ['welcome', 'wizard', 'code', 'generating', 'result', 'editor'].forEach((n) => {
+  ['welcome', 'wizard', 'code', 'generating', 'result', 'editor', 'import'].forEach((n) => {
     $('#screen-' + n).classList.toggle('hidden', n !== name);
   });
 }
@@ -547,6 +579,154 @@ function startResend(init) {
   }
 }
 
+/* ------------------------------------------------------------ import ---- */
+function openImport() {
+  showScreen('import');
+  $('#import-status').classList.add('hidden');
+  validateImport();
+  renderImportAccents();
+  setTimeout(() => $('#import-url').focus(), 80);
+}
+function renderImportAccents() {
+  const row = $('#import-accent-row');
+  if (!row || row.dataset.done) return;
+  row.innerHTML = '<span class="lbl">Акцент</span>';
+  (CFG.accents || []).forEach((acc) => {
+    const s = document.createElement('button');
+    s.type = 'button';
+    s.className = 'swatch' + (acc.id === state.theme.accent ? ' sel' : '');
+    s.style.background = acc.hex;
+    s.title = acc.label;
+    s.addEventListener('click', () => {
+      state.theme.accent = acc.id;
+      row.querySelectorAll('.swatch').forEach((x) => x.classList.remove('sel'));
+      s.classList.add('sel');
+      saveState();
+    });
+    row.appendChild(s);
+  });
+  row.dataset.done = '1';
+}
+function validateImport() {
+  const v = $('#import-url').value.trim();
+  const ok = /^https?:\/\/.+\..+/.test(v) || /^[^\/\s]+\.[^\/\s]+/.test(v);
+  const field = $('#import-field');
+  field.classList.toggle('invalid', !!v && !ok);
+  $('#btn-import').disabled = !v || !ok;
+  return ok && v;
+}
+async function startImport() {
+  const raw = $('#import-url').value.trim();
+  if (!raw) { validateImport(); return; }
+  let url = raw;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const btn = $('#btn-import');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = 'Загружаем…';
+  const status = $('#import-status');
+  status.classList.add('hidden');
+  try {
+    const r = await fetch('/api/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, theme_mode: state.theme.mode, accent: state.theme.accent }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    beginImportPolling(d.job_id);
+  } catch (e) {
+    status.textContent = e.message || 'Не удалось запустить импорт';
+    status.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+async function beginImportPolling(jobId) {
+  showScreen('generating');
+  $('#gen-error').classList.add('hidden');
+  $('#gen-warning').classList.add('hidden');
+  $('#gen-sub').textContent = 'Загружаем сайт по ссылке, разбираем структуру и переносим в редактор. Обычно 20–60 секунд.';
+  const ul = $('#stage-list');
+  const started = Date.now();
+  // пока не знаем стадий — нарисуем заглушку, обновим из /api/job
+  ul.innerHTML = '<li class="current"><span class="st-dot">' + I.spinner + '</span><span>Загружаем сайт<small class="st-hint">Скачиваем страницу</small></span></li>';
+  $('#progress-fill').style.width = '8%';
+  const poll = setInterval(async () => {
+    let job;
+    try { job = await (await fetch('/api/job/' + jobId)).json(); } catch (e) { return; }
+    const stages = job.stages || [];
+    const hints = job.hints || [];
+    ul.innerHTML = stages.map((s) => `<li><span class="st-dot"></span><span>${s}<small class="st-hint"></small></span></li>`).join('');
+    const items = ul.querySelectorAll('li');
+    items.forEach((li, i) => {
+      li.classList.toggle('done', i < job.stage || job.status === 'done');
+      li.classList.toggle('current', i === job.stage && job.status === 'running');
+      li.querySelector('.st-dot').innerHTML = (i < job.stage || job.status === 'done') ? I.check : (i === job.stage && job.status === 'running') ? I.spinner : '';
+      const hint = li.querySelector('.st-hint');
+      if (hint) hint.textContent = i === job.stage ? (hints[i] || '') : '';
+    });
+    const p = job.status === 'done' ? 100 : Math.min(96, (job.stage / (stages.length || 5)) * 100 + 4);
+    $('#progress-fill').style.width = p + '%';
+    if (job.status === 'done') {
+      clearInterval(poll);
+      if (job.warning) { $('#gen-warning').textContent = job.warning; $('#gen-warning').classList.remove('hidden'); }
+      setTimeout(() => showResult(jobId, started), job.warning ? 1400 : 500);
+    } else if (job.status === 'error') {
+      clearInterval(poll);
+      genError('Ошибка импорта: ' + (job.error || 'неизвестная'));
+    }
+  }, 700);
+}
+
+/* publish helpers */
+function openPublishModal() {
+  if (!state.editorJob) {
+    const h = $('#publish-hint');
+    if (h) { h.textContent = 'Сначала создайте или перенесите сайт.'; h.style.display = 'block'; }
+    return;
+  }
+  $('#btn-export-zip').href = '/api/export/' + state.editorJob;
+  $('#btn-export-zip').setAttribute('download', 'site-' + state.editorJob + '.zip');
+  $('#wp-result').classList.add('hidden');
+  $('#publish-modal').classList.remove('hidden');
+}
+function closePublishModal() { $('#publish-modal').classList.add('hidden'); }
+async function sendToWp() {
+  const wp_url = $('#wp-url').value.trim();
+  const username = $('#wp-user').value.trim();
+  const app_password = $('#wp-pass').value.trim();
+  const status = $('#wp-status').value;
+  const out = $('#wp-result');
+  if (!wp_url || !username || !app_password) {
+    out.textContent = 'Заполните адрес WP, логин и Application Password';
+    out.classList.remove('hidden');
+    return;
+  }
+  const btn = $('#btn-wp-send');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = 'Отправляем…';
+  out.classList.add('hidden');
+  try {
+    const r = await fetch('/api/publish/wp/' + state.editorJob, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wp_url, username, app_password, status }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    out.textContent = 'Готово! Страница создана: ' + (d.url || 'WordPress') + ' (id ' + (d.id || '?') + ')';
+    out.style.background = '#e9f8ef';
+    out.style.borderColor = '#bfe8cf';
+    out.classList.remove('hidden');
+  } catch (e) {
+    out.textContent = e.message;
+    out.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
 /* ----------------------------------------------------------- generate ---- */
 async function startGeneration() {
   if (CFG.auth) { await startGenerationServerAuthed(); return; }
@@ -676,6 +856,11 @@ function showResult(jobId, started) {
   $('#btn-download').setAttribute('download', 'site-' + jobId + '.html');
   state.editorJob = jobId;
   state.editorVersion = 0;
+  // подготовим ссылку на ZIP для модалки публикации
+  const zipBtn = document.getElementById('btn-export-zip');
+  if (zipBtn) { zipBtn.href = '/api/export/' + jobId; zipBtn.setAttribute('download', 'site-' + jobId + '.zip'); }
+  const hint = document.getElementById('publish-hint');
+  if (hint) hint.style.display = 'none';
   showScreen('result');
   setTimeout(fitFrame, 100);
 }
