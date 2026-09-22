@@ -52,6 +52,9 @@ body{overflow:hidden}
 .guides{position:absolute;inset:0;pointer-events:none}
 .guide-v{position:absolute;top:0;bottom:0;width:1px;background:rgba(91,95,239,.35);display:none}
 .guide-h{position:absolute;left:0;right:0;height:1px;background:rgba(91,95,239,.35);display:none}
+.canvas-stage.preview .block{cursor:default;border-color:transparent;box-shadow:none}
+.canvas-stage.preview .handle{display:none !important}
+.canvas-stage.preview .block.selected{border-color:transparent;box-shadow:none}
 </style>
 </head>
 <body>
@@ -68,6 +71,9 @@ body{overflow:hidden}
     <label class="btn-sm" style="cursor:pointer"><input type="checkbox" id="snap" checked style="accent-color:#5B5FEF"> Сетка 24</label>
     <button class="btn-sm" onclick="undo()" title="Ctrl+Z">↩️</button>
     <button class="btn-sm" onclick="redo()" title="Ctrl+Y">↪️</button>
+    <div class="sep"></div>
+    <button class="btn-sm" id="btn-preview" onclick="togglePreview()">👁️ Превью</button>
+    <button class="btn-sm" onclick="showHelp()">❓ Помощь</button>
   </div>
   <div style="flex:1"></div>
   <div class="toolbar">
@@ -144,6 +150,24 @@ body{overflow:hidden}
       Level 3 — свободный канвас. <code id="hint-canvas">localStorage: nelvi_canvas_<span id="hint-id">demo-canvas</span></code> + <code>POST /api/canvas/{id}</code>. История 50 шагов. Сетка 24px. Экспорт HTML/ZIP. Публикация Nelvi/S3/WP.
     </div>
     <script>document.addEventListener('DOMContentLoaded',()=>{ const h=document.getElementById('hint-id'); if(h) h.textContent=CANVAS_ID; });</script>
+  </div>
+</div>
+<div id="help-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center" onclick="if(event.target===this) hideHelp()">
+  <div style="background:#fff;border-radius:16px;max-width:520px;width:90%;padding:20px;max-height:80vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b style="font-family:Unbounded,sans-serif">Горячие клавиши</b><button class="btn-sm" onclick="hideHelp()">✕</button></div>
+    <div style="display:grid;gap:8px;font-size:13px">
+      <div><b>Перетаскивание</b> — тяни блок мышкой, 8 ручек для ресайза</div>
+      <div><b>Двойной клик</b> — редактировать текст</div>
+      <div><b>Del</b> — удалить выбранный блок</div>
+      <div><b>Ctrl+Z / Ctrl+Y</b> — отмена/повтор (история 50 шагов, + сервер история)</div>
+      <div><b>Стрелки</b> — сдвиг 1px, <b>Shift+стрелки</b> — 10px</div>
+      <div><b>Сетка 24</b> — прилипание к сетке и к краям других блоков</div>
+      <div><b>Слои</b> — порядок z-index, На передний/На задний</div>
+      <div><b>Экспорт</b> — HTML (один файл) / ZIP (+sitemap/robots/site.json)</div>
+      <div><b>Публикация</b> — Nelvi (/api/site/{id}), S3, WP (REST API)</div>
+      <div><b>Канвас</b> — bg/h/brand/theme (тёмная/светлая, акценты) сохраняются на сервере, debounce 400ms</div>
+    </div>
+    <button class="btn-sm primary" style="margin-top:12px;width:100%;justify-content:center" onclick="hideHelp()">Понятно</button>
   </div>
 </div>
 <input type="file" id="filepick" accept="image/*" style="display:none">
@@ -256,13 +280,13 @@ function setDevice(d){
   document.getElementById('btn-desktop')?.classList.toggle('active', d==='desktop');
   toast('Экран: '+w+'px');
 }
-function addBlock(type){
+function addBlock(type){ if(previewMode){ toast('Выйди из превью'); return; }
   const id=uid();
   const base={heading:{w:480,h:64,props:{text:'Новый заголовок',size:28,color:'#2B2B36'}}, text:{w:420,h:80,props:{text:'Новый текст — двойной клик чтобы редактировать',size:14,color:'#7A7A8E'}}, button:{w:180,h:44,props:{text:'Кнопка',bg:'#FF7A59',color:'#fff',radius:10}}, image:{w:320,h:180,props:{emoji:'🖼️',bg:'#EDEFFF',radius:12,src:''}}, form:{w:420,h:220,props:{title:'Форма'}}, divider:{w:1024,h:2,props:{bg:'#E7E5F0'}}}[type];
   const b={id, type, x:snap(80+Math.random()*120), y:snap(80+Math.random()*120), w:base.w, h:base.h, z:Math.max(0,...blocks.map(x=>x.z))+1, props:Object.assign({}, base.props)};
   blocks.push(b); pushHist(); render(); select(id); save(false);
 }
-function loadTemplate(t){
+function loadTemplate(t){ if(previewMode){ toast('Выйди из превью'); return; }
   if(t==='hero'){ blocks=blocks.concat([{id:uid(),type:'heading',x:48,y:480,w:520,h:64,z:10,props:{text:'Преимущества',size:24,color:'#2B2B36'}},{id:uid(),type:'text',x:48,y:552,w:520,h:48,z:11,props:{text:'Три факта с цифрами — без воды',size:14,color:'#7A7A8E'}}]);}
   if(t==='features'){ for(let i=0;i<3;i++) blocks.push({id:uid(),type:'text',x:48+i*360,y:620,w:320,h:100,z:12+i,props:{text:'✨ Фича '+(i+1)+'\nС цифрой и фактом',size:13,color:'#2B2B36',bg:'#fff',border:'#E7E5F0'}}); }
   if(t==='contact'){ blocks.push({id:uid(),type:'form',x:640,y:480,w:432,h:220,z:20,props:{title:'Связаться'}}); }
@@ -435,6 +459,7 @@ function render(){
   renderLayers(); renderProps();
 }
 function onPointerDown(e){
+  if(previewMode) return;
   e.preventDefault();
   e.stopPropagation();
   const dir=e.target.dataset.dir;
@@ -519,16 +544,16 @@ function renderProps(){
   if(b.type==='text'&&b.props.border!==undefined) h+=`<div class="field"><label>Рамка</label><input type="color" value="${rgbToHex(b.props.border)||'#E7E5F0'}" oninput="updateStyle('border', this.value)"></div>`;
   p.innerHTML=h;
 }
-function updateProp(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b[k]=+v; render(); }
-function updateText(v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.props.text=v; render(); }
-function updateStyle(k,v){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.props[k]=v; render(); save(false); }
-function updateImageUrl(v){ const b=blocks.find(x=>x.id===selected); if(!b||b.type!=='image') return; b.props.src=v; render(); save(false); }
+function updateProp(k,v){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; b[k]=+v; render(); }
+function updateText(v){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; b.props.text=v; render(); }
+function updateStyle(k,v){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; b.props[k]=v; render(); save(false); }
+function updateImageUrl(v){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b||b.type!=='image') return; b.props.src=v; render(); save(false); }
 function uploadImage(file){ if(!file) return; const b=blocks.find(x=>x.id===selected); if(!b) return; const r=new FileReader(); r.onload=e=>{ b.props.src=e.target.result; b.props.emoji=''; render(); save(false); }; r.readAsDataURL(file); }
 function rgbToHex(c){ if(!c||c==='transparent') return '#ffffff'; if(c.startsWith('#')) return c; if(c.startsWith('rgb')){ const m=c.match(/\d+/g); if(!m) return '#000000'; return '#'+m.slice(0,3).map(x=> (+x).toString(16).padStart(2,'0')).join(''); } return '#000000'; }
-function duplicate(){ const b=blocks.find(x=>x.id===selected); if(!b) return; const nb=JSON.parse(JSON.stringify(b)); nb.id=uid(); nb.x=snap(nb.x+20); nb.y=snap(nb.y+20); nb.z=Math.max(...blocks.map(x=>x.z))+1; blocks.push(nb); pushHist(); render(); select(nb.id); save(false); }
-function remove(){ const idx=blocks.findIndex(x=>x.id===selected); if(idx<0) return; blocks.splice(idx,1); selected=null; pushHist(); render(); save(false); }
-function bringFront(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.max(...blocks.map(x=>x.z))+1; pushHist(); render(); save(false); }
-function sendBack(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.min(...blocks.map(x=>x.z))-1; pushHist(); render(); save(false); }
+function duplicate(){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; const nb=JSON.parse(JSON.stringify(b)); nb.id=uid(); nb.x=snap(nb.x+20); nb.y=snap(nb.y+20); nb.z=Math.max(...blocks.map(x=>x.z))+1; blocks.push(nb); pushHist(); render(); select(nb.id); save(false); }
+function remove(){ if(previewMode) return; const idx=blocks.findIndex(x=>x.id===selected); if(idx<0) return; blocks.splice(idx,1); selected=null; pushHist(); render(); save(false); }
+function bringFront(){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.max(...blocks.map(x=>x.z))+1; pushHist(); render(); save(false); }
+function sendBack(){ if(previewMode) return; const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.min(...blocks.map(x=>x.z))-1; pushHist(); render(); save(false); }
 let canvasBg = localStorage.getItem('nelvi_canvas_bg_'+CANVAS_ID) || '#ffffff';
 let canvasH = parseInt(localStorage.getItem('nelvi_canvas_h_'+CANVAS_ID) || '720', 10);
 let canvasTheme = JSON.parse(localStorage.getItem('nelvi_canvas_theme_'+CANVAS_ID) || 'null') || {mode:'light', accent:'purple'};
@@ -640,8 +665,19 @@ async function serverUndo(){
   }catch(e){ toast('Ошибка undo: '+e.message); }
 }
 
+let previewMode=false;
+function togglePreview(){
+  previewMode=!previewMode;
+  stage.classList.toggle('preview', previewMode);
+  const btn=document.getElementById('btn-preview');
+  if(btn) btn.classList.toggle('active', previewMode);
+  toast(previewMode?'Превью — редактирование отключено':'Редактирование включено');
+}
+function showHelp(){ document.getElementById('help-modal').style.display='flex'; }
+function hideHelp(){ document.getElementById('help-modal').style.display='none'; }
 function toast(m){ const t=document.createElement('div'); t.textContent=m; t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2B2B36;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;z-index:99'; document.body.appendChild(t); setTimeout(()=>t.remove(),1800); }
 document.addEventListener('keydown', e=>{
+  if(previewMode) return;
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
   if(e.key==='Delete' && selected && document.activeElement.tagName!=='INPUT' && document.activeElement.tagName!=='TEXTAREA'){ remove(); }
