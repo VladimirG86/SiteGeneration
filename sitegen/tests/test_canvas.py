@@ -135,3 +135,30 @@ def test_canvas_history_undo(client, tmp_path, monkeypatch):
     assert r.status_code==200
     r=client.post(f"/api/canvas/{jid}/undo")
     assert r.status_code==400
+
+def test_canvas_brand_persist(client, tmp_path, monkeypatch):
+    import app as appmod, generator
+    monkeypatch.setattr(appmod, "CANVAS_DIR", str(tmp_path / "canvas_brand"))
+    import os
+    os.makedirs(tmp_path / "canvas_brand", exist_ok=True)
+    monkeypatch.setattr(generator, "SITES_DIR", str(tmp_path / "sites_brand"))
+    os.makedirs(tmp_path / "sites_brand", exist_ok=True)
+    appmod._RATE.clear()
+    r=client.post("/api/canvases")
+    jid=r.json()["id"]
+    r=client.post(f"/api/canvas/{jid}", json={"blocks":[{"id":"h1","type":"heading","x":0,"y":0,"w":100,"h":50,"z":1,"props":{"text":"hi","size":20,"color":"#000"}}], "brand":"TestBrand","bg":"#ABCDEF","h":850})
+    assert r.status_code==200
+    r=client.get(f"/api/canvas/{jid}")
+    assert r.json()["brand"]=="TestBrand"
+    r=client.get("/api/canvases")
+    assert any(c["id"]==jid and c.get("brand")=="TestBrand" for c in r.json()["canvases"])
+    r=client.post(f"/api/canvas/{jid}/publish")
+    assert r.json()["ok"]
+    r=client.get(f"/api/site/{jid}/json")
+    assert r.json()["brand"]=="TestBrand"
+    import zipfile, io
+    r=client.get(f"/api/canvas/{jid}/zip")
+    z=zipfile.ZipFile(io.BytesIO(r.content))
+    html=z.read("index.html").decode()
+    assert "TestBrand" in html
+    assert "#ABCDEF" in html or "ABCDEF" in html

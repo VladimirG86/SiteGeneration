@@ -58,6 +58,8 @@ body{overflow:hidden}
 <div class="topbar-canvas">
   <a class="brand" href="/" style="text-decoration:none;color:inherit"><span class="brand-mark" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#5B5FEF,#7B7FFF);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span>Nelvi <span class="tagline" style="font-family:Inter,sans-serif;font-weight:500;font-size:11px;opacity:.6">Canvas · Level 3</span></a>
   <span class="badge-free">FREE CANVAS</span>
+  <span class="hint2" id="canvas-brand-badge" style="background:#EDEFFF;border:1px solid #CFCDE6;color:#5B5FEF;padding:6px 10px;border-radius:999px;font-weight:700;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <button class="btn-sm" onclick="renameCanvas()" title="Переименовать канвас">✏️</button>
   <div class="toolbar" style="margin-left:8px">
     <button class="btn-sm" id="btn-desktop" onclick="setDevice('desktop')">🖥️ 1120</button>
     <button class="btn-sm" onclick="setDevice('tablet')">📱 768</button>
@@ -147,6 +149,7 @@ let CANVAS_ID = _params.get('id') || _params.get('canvas') || localStorage.getIt
 if(!/^[A-Za-z0-9_-]{1,32}$/.test(CANVAS_ID)) CANVAS_ID='demo-canvas';
 localStorage.setItem('nelvi_canvas_last', CANVAS_ID);
 const LS='nelvi_canvas_'+CANVAS_ID;
+let canvasBrand = localStorage.getItem('nelvi_canvas_brand_'+CANVAS_ID) || '';
 let _defaultBlocks = [
   {id:'h1', type:'heading', x:48, y:48, w:520, h:84, z:1, props:{text:'Сайт за вечер. Без кода.', size:36, color:'#2B2B36'}},
   {id:'t1', type:'text', x:48, y:148, w:520, h:72, z:2, props:{text:'Собирай страницы блоками, публикуй в один клик. Свободный канвас — двигай всё мышкой как в Tilda.', size:15, color:'#7A7A8E'}},
@@ -160,7 +163,9 @@ let blocks = (Array.isArray(_lsBlocks) && _lsBlocks.length? _lsBlocks : null) ||
 document.addEventListener('DOMContentLoaded', ()=>{
   const badge=document.getElementById('canvas-id-badge');
   if(badge) badge.textContent='canvas:'+CANVAS_ID;
-  // try load from backend (overrides LS if exists on server) + bg/h
+  const brandBadge=document.getElementById('canvas-brand-badge');
+  if(brandBadge) brandBadge.textContent=canvasBrand || 'без названия';
+  // try load from backend (overrides LS if exists on server) + bg/h/brand
   fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)).then(r=>r.json()).then(j=>{
     if(j && Array.isArray(j.blocks) && j.blocks.length){
       blocks=j.blocks;
@@ -198,6 +203,7 @@ function save(withHist=true){
   try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, canvasBg); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); }catch(e){}
+  try{ localStorage.setItem('nelvi_canvas_brand_'+CANVAS_ID, canvasBrand); }catch(e){}
   if(withHist) pushHist();
   // debounce server save ~400ms, coalesce rapid edits
   _savePending=true;
@@ -208,7 +214,7 @@ function save(withHist=true){
     _saveTimer=null;
     if(!_savePending) return;
     _savePending=false;
-    fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})})
+    fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand})})
       .then(r=>{ if(!r.ok) throw new Error('save '+r.status); if(badge) badge.textContent='✓ сохранено'; setTimeout(()=>{ if(badge) badge.textContent=''; },1500); try{ loadHistory(); }catch(e){} })
       .catch(()=>{ if(badge) badge.textContent='⚠ ошибка'; });
   }, 400);
@@ -218,7 +224,18 @@ function saveNow(){
   if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
   if(!_savePending) return;
   _savePending=false;
-  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})}).catch(()=>{});
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand})}).catch(()=>{});
+}
+function renameCanvas(){
+  const cur=canvasBrand || '';
+  const v=prompt('Название канваса (бренд на сайте):', cur);
+  if(v===null) return;
+  canvasBrand=(v||'').trim().slice(0,80);
+  try{ localStorage.setItem('nelvi_canvas_brand_'+CANVAS_ID, canvasBrand); }catch(e){}
+  const bb=document.getElementById('canvas-brand-badge'); if(bb) bb.textContent=canvasBrand || 'без названия';
+  save(false); saveNow();
+  // also update h1 if exists and matches old brand?
+  toast('Переименовано: '+(canvasBrand||'—'));
 }
 function uid(){return Math.random().toString(36).slice(2,8)}
 function snap(v){ return snapEl.checked ? Math.round(v/24)*24 : v; }
@@ -561,6 +578,7 @@ async function serverUndo(){
       blocks=d.blocks;
       if(d.bg) canvasBg=d.bg;
       if(d.h) canvasH=parseInt(d.h,10)||canvasH;
+      if(d.brand!==undefined){ canvasBrand=d.brand||''; try{ localStorage.setItem('nelvi_canvas_brand_'+CANVAS_ID, canvasBrand); }catch(e){} const bb=document.getElementById('canvas-brand-badge'); if(bb) bb.textContent=canvasBrand||'без названия'; }
       try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
       applyCanvasChrome(); render(); pushHist(); save(false);
       toast('Отменено на сервере');

@@ -1092,6 +1092,7 @@ class CanvasIn(BaseModel):
     blocks: list = Field(default_factory=list)
     bg: str | None = Field(default=None, max_length=20)
     h: int | None = Field(default=None, ge=400, le=4000)
+    brand: str | None = Field(default=None, max_length=80)
 
 _CANVAS_ALLOWED_TYPES = {"heading","text","button","image","form","divider"}
 _CANVAS_MAX_BLOCKS = 80
@@ -1139,11 +1140,12 @@ def _canvas_load_history(job_id):
             return d if isinstance(d, list) else []
         except: return []
     return []
-def _canvas_push_history(job_id, blocks, bg=None, h=None):
+def _canvas_push_history(job_id, blocks, bg=None, h=None, brand=None):
     hist=_canvas_load_history(job_id)
     snap={"ts": int(time.time()), "blocks": blocks}
     if bg: snap["bg"]=bg
     if h: snap["h"]=h
+    if brand: snap["brand"]=brand
     # avoid duplicate consecutive
     import json as _j
     if hist and _j.dumps(hist[-1].get("blocks"), sort_keys=True)==_j.dumps(blocks, sort_keys=True) and hist[-1].get("bg")==bg and hist[-1].get("h")==h:
@@ -1168,6 +1170,17 @@ def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
     accent = theme.get("accent") or "purple"
     mode = theme.get("mode") or "light"
     css = build_css(mode, accent)
+    # brand优先 from canvas file meta, then site
+    try:
+        _p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+        if os.path.exists(_p):
+            import json as _jj
+            with open(_p, encoding="utf-8") as _ff:
+                _dd=_jj.load(_ff)
+                if isinstance(_dd, dict) and _dd.get("brand"):
+                    site_prev=dict(site_prev)  # copy not to mutate original
+                    site_prev["brand"]=_dd.get("brand")
+    except: pass
     brand = site_prev.get("brand") or "Nelvi Canvas"
     esc=_canvas_esc
     # canvas chrome: bg/h from site or from canvas file meta (stored in site_prev canvas_bg/h or data bg/h)
@@ -1249,7 +1262,8 @@ def list_canvases():
                     blocks=data.get("blocks",[]) if isinstance(data, dict) else []
                     bg=data.get("bg") if isinstance(data, dict) else None
                     h=data.get("h") if isinstance(data, dict) else None
-                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid)), "bg": bg, "h": h})
+                    brand=data.get("brand") if isinstance(data, dict) else None
+                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid)), "bg": bg, "h": h, "brand": brand})
             except: out.append({"id": jid, "blocks": 0})
         return {"canvases": out}
     except Exception as e:
@@ -1302,25 +1316,28 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
     if err:
         return JSONResponse({"error": err}, status_code=400)
     p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
-    # merge meta: if bg/h not provided, keep existing
+    # merge meta: if bg/h/brand not provided, keep existing
     bg = body.bg
     h = body.h
+    brand = body.brand
     # if not provided, try to keep old file's meta
-    if bg is None or h is None:
+    if bg is None or h is None or brand is None:
         try:
             if os.path.exists(p):
                 with open(p, encoding="utf-8") as _f:
                     _old=json.load(_f)
                     if bg is None: bg=_old.get("bg")
                     if h is None: h=_old.get("h")
+                    if brand is None: brand=_old.get("brand")
         except: pass
     data = {"blocks": body.blocks}
     if bg: data["bg"]=bg
     if h: data["h"]=h
+    if brand: data["brand"]=brand
     # history: save previous blocks if changed
     try:
         _old_blocks=None
-        _old_bg=None; _old_h=None
+        _old_bg=None; _old_h=None; _old_brand=None
         if os.path.exists(p):
             import json as _hj
             with open(p, encoding="utf-8") as _hf:
@@ -1328,10 +1345,11 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
                 _old_blocks=_od.get("blocks")
                 _old_bg=_od.get("bg")
                 _old_h=_od.get("h")
+                _old_brand=_od.get("brand")
         if _old_blocks is not None:
             import json as _j3
-            if _j3.dumps(_old_blocks, sort_keys=True)!=_j3.dumps(body.blocks, sort_keys=True) or _old_bg!=bg or _old_h!=h:
-                _canvas_push_history(job_id, _old_blocks, _old_bg, _old_h)
+            if _j3.dumps(_old_blocks, sort_keys=True)!=_j3.dumps(body.blocks, sort_keys=True) or _old_bg!=bg or _old_h!=h or _old_brand!=brand:
+                _canvas_push_history(job_id, _old_blocks, _old_bg, _old_h, _old_brand)
     except: pass
     try:
         with open(p, "w", encoding="utf-8") as f:
@@ -1440,14 +1458,14 @@ def canvas_history(job_id: str):
     # return summary without full blocks to keep payload light, but include blocks count
     out=[]
     for i, snap in enumerate(hist):
-        out.append({"idx": i, "ts": snap.get("ts"), "blocks": len(snap.get("blocks") or []), "bg": snap.get("bg"), "h": snap.get("h")})
+        out.append({"idx": i, "ts": snap.get("ts"), "blocks": len(snap.get("blocks") or []), "bg": snap.get("bg"), "h": snap.get("h"), "brand": snap.get("brand")})
     # also include current
     cur=None
     p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
     if os.path.exists(p):
         try:
             with open(p, encoding="utf-8") as f: cur=json.load(f)
-            out.append({"idx": len(hist), "ts": int(time.time()), "blocks": len(cur.get("blocks") or []), "bg": cur.get("bg"), "h": cur.get("h"), "current": True})
+            out.append({"idx": len(hist), "ts": int(time.time()), "blocks": len(cur.get("blocks") or []), "bg": cur.get("bg"), "h": cur.get("h"), "brand": cur.get("brand"), "current": True})
         except: pass
     return {"history": out, "count": len(hist)}
 
@@ -1464,8 +1482,12 @@ def canvas_undo(job_id: str, request: Request):
     snap=hist.pop()
     p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
     try:
+        payload={"blocks": snap.get("blocks") or []}
+        if snap.get("bg"): payload["bg"]=snap.get("bg")
+        if snap.get("h"): payload["h"]=snap.get("h")
+        if snap.get("brand"): payload["brand"]=snap.get("brand")
         with open(p, "w", encoding="utf-8") as f:
-            json.dump({"blocks": snap.get("blocks") or [], "bg": snap.get("bg"), "h": snap.get("h")}, f, ensure_ascii=False)
+            json.dump(payload, f, ensure_ascii=False)
         # save back history
         with open(_canvas_hist_path(job_id),"w",encoding="utf-8") as f:
             json.dump(hist, f, ensure_ascii=False)
