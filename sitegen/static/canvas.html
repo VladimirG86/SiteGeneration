@@ -136,7 +136,9 @@ body{overflow:hidden}
     <div style="margin-top:10px;padding:10px;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:10px" class="hint2">
       <div style="font-weight:700;margin-bottom:6px">Канвас</div>
       <div class="field" style="margin-bottom:8px"><label>Фон канваса</label><input type="color" id="canvas-bg" value="#ffffff" oninput="setCanvasBg(this.value)"></div>
-      <div class="field" style="margin-bottom:0"><label>Высота</label><input type="range" id="canvas-h" min="600" max="2000" value="720" oninput="setCanvasH(this.value)"><span class="hint2" id="canvas-h-val">720px</span></div>
+      <div class="field" style="margin-bottom:8px"><label>Высота</label><input type="range" id="canvas-h" min="600" max="2000" value="720" oninput="setCanvasH(this.value)"><span class="hint2" id="canvas-h-val">720px</span></div>
+      <div class="field" style="margin-bottom:8px"><label>Тема (светлая/тёмная)</label><div style="display:flex;gap:6px"><button class="btn-sm" id="theme-light" onclick="setCanvasThemeMode('light')">Светлая</button><button class="btn-sm" id="theme-dark" onclick="setCanvasThemeMode('dark')">Тёмная</button></div></div>
+      <div class="field" style="margin-bottom:0"><label>Акцент</label><div id="canvas-accents" style="display:flex;gap:6px;flex-wrap:wrap"></div></div>
     </div>
     <div style="margin-top:12px;padding:10px;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:10px" class="hint2">
       Level 3 — свободный канвас. <code id="hint-canvas">localStorage: nelvi_canvas_<span id="hint-id">demo-canvas</span></code> + <code>POST /api/canvas/{id}</code>. История 50 шагов. Сетка 24px. Экспорт HTML/ZIP. Публикация Nelvi/S3/WP.
@@ -164,11 +166,12 @@ let _lsBlocks = null;
 try{ _lsBlocks = JSON.parse(localStorage.getItem(LS)||'null'); }catch(e){ _lsBlocks=null; }
 let blocks = (Array.isArray(_lsBlocks) && _lsBlocks.length? _lsBlocks : null) || _defaultBlocks.slice();
 document.addEventListener('DOMContentLoaded', ()=>{
+  loadAccents();
   const badge=document.getElementById('canvas-id-badge');
   if(badge) badge.textContent='canvas:'+CANVAS_ID;
   const brandBadge=document.getElementById('canvas-brand-badge');
   if(brandBadge) brandBadge.textContent=canvasBrand || 'без названия';
-  // try load from backend (overrides LS if exists on server) + bg/h/brand
+  // try load from backend (overrides LS if exists on server) + bg/h/brand/theme
   fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)).then(r=>r.json()).then(j=>{
     if(j && Array.isArray(j.blocks) && j.blocks.length){
       blocks=j.blocks;
@@ -207,6 +210,7 @@ function save(withHist=true){
   try{ localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, canvasBg); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); }catch(e){}
   try{ localStorage.setItem('nelvi_canvas_brand_'+CANVAS_ID, canvasBrand); }catch(e){}
+  try{ localStorage.setItem('nelvi_canvas_theme_'+CANVAS_ID, JSON.stringify(canvasTheme)); }catch(e){}
   if(withHist) pushHist();
   // debounce server save ~400ms, coalesce rapid edits
   _savePending=true;
@@ -217,7 +221,7 @@ function save(withHist=true){
     _saveTimer=null;
     if(!_savePending) return;
     _savePending=false;
-    fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand})})
+    fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand, theme: canvasTheme})})
       .then(r=>{ if(!r.ok) throw new Error('save '+r.status); if(badge) badge.textContent='✓ сохранено'; setTimeout(()=>{ if(badge) badge.textContent=''; },1500); try{ loadHistory(); }catch(e){} })
       .catch(()=>{ if(badge) badge.textContent='⚠ ошибка'; });
   }, 400);
@@ -227,7 +231,7 @@ function saveNow(){
   if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
   if(!_savePending) return;
   _savePending=false;
-  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand})}).catch(()=>{});
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH, brand: canvasBrand, theme: canvasTheme})}).catch(()=>{});
 }
 function renameCanvas(){
   const cur=canvasBrand || '';
@@ -527,15 +531,56 @@ function bringFront(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b
 function sendBack(){ const b=blocks.find(x=>x.id===selected); if(!b) return; b.z=Math.min(...blocks.map(x=>x.z))-1; pushHist(); render(); save(false); }
 let canvasBg = localStorage.getItem('nelvi_canvas_bg_'+CANVAS_ID) || '#ffffff';
 let canvasH = parseInt(localStorage.getItem('nelvi_canvas_h_'+CANVAS_ID) || '720', 10);
+let canvasTheme = JSON.parse(localStorage.getItem('nelvi_canvas_theme_'+CANVAS_ID) || 'null') || {mode:'light', accent:'purple'};
 function applyCanvasChrome(){
   stage.style.background = canvasBg;
   stage.style.minHeight = canvasH+'px';
   const bgEl=document.getElementById('canvas-bg'); if(bgEl) bgEl.value=canvasBg;
   const hEl=document.getElementById('canvas-h'); if(hEl) hEl.value=canvasH;
   const hv=document.getElementById('canvas-h-val'); if(hv) hv.textContent=canvasH+'px';
+  updateThemeUI();
 }
-function setCanvasBg(v){ canvasBg=v; stage.style.background=v; localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, v); }
-function setCanvasH(v){ canvasH=parseInt(v,10); stage.style.minHeight=canvasH+'px'; localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); const hv=document.getElementById('canvas-h-val'); if(hv) hv.textContent=canvasH+'px'; }
+function setCanvasBg(v){ canvasBg=v; stage.style.background=v; localStorage.setItem('nelvi_canvas_bg_'+CANVAS_ID, v); save(false); saveNow(); }
+function setCanvasH(v){ canvasH=parseInt(v,10); stage.style.minHeight=canvasH+'px'; localStorage.setItem('nelvi_canvas_h_'+CANVAS_ID, String(canvasH)); const hv=document.getElementById('canvas-h-val'); if(hv) hv.textContent=canvasH+'px'; save(false); saveNow(); }
+let _accentsCache=null;
+async function loadAccents(){
+  try{
+    const r=await fetch('/api/config');
+    const j=await r.json();
+    _accentsCache=j.accents||[];
+    renderAccents();
+  }catch(e){}
+}
+function renderAccents(){
+  const box=document.getElementById('canvas-accents');
+  if(!box || !_accentsCache) return;
+  box.innerHTML='';
+  _accentsCache.forEach(a=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.style.cssText='width:28px;height:28px;border-radius:50%;border:2px solid '+(canvasTheme.accent===a.id?'#5B5FEF':'#E7E5F0')+';background:'+a.hex+';cursor:pointer;';
+    btn.title=a.label;
+    btn.onclick=()=> setCanvasAccent(a.id);
+    box.appendChild(btn);
+  });
+}
+function updateThemeUI(){
+  const light=document.getElementById('theme-light');
+  const dark=document.getElementById('theme-dark');
+  if(light) light.style.borderColor = canvasTheme.mode==='light' ? '#5B5FEF' : '#E7E5F0';
+  if(dark) dark.style.borderColor = canvasTheme.mode==='dark' ? '#5B5FEF' : '#E7E5F0';
+  renderAccents();
+}
+function setCanvasThemeMode(m){
+  canvasTheme.mode=m;
+  localStorage.setItem('nelvi_canvas_theme_'+CANVAS_ID, JSON.stringify(canvasTheme));
+  updateThemeUI(); save(false); saveNow(); toast('Тема: '+(m==='dark'?'тёмная':'светлая'));
+}
+function setCanvasAccent(a){
+  canvasTheme.accent=a;
+  localStorage.setItem('nelvi_canvas_theme_'+CANVAS_ID, JSON.stringify(canvasTheme));
+  updateThemeUI(); save(false); saveNow(); toast('Акцент: '+a);
+}
 async function duplicateCanvas(){
   try{
     const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/duplicate', {method:'POST'});
@@ -586,6 +631,7 @@ async function serverUndo(){
       if(d.bg) canvasBg=d.bg;
       if(d.h) canvasH=parseInt(d.h,10)||canvasH;
       if(d.brand!==undefined){ canvasBrand=d.brand||''; try{ localStorage.setItem('nelvi_canvas_brand_'+CANVAS_ID, canvasBrand); }catch(e){} const bb=document.getElementById('canvas-brand-badge'); if(bb) bb.textContent=canvasBrand||'без названия'; }
+      if(d.theme){ canvasTheme=d.theme; try{ localStorage.setItem('nelvi_canvas_theme_'+CANVAS_ID, JSON.stringify(canvasTheme)); }catch(e){} updateThemeUI(); }
       try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
       applyCanvasChrome(); render(); pushHist(); save(false);
       toast('Отменено на сервере');

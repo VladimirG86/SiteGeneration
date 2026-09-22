@@ -162,3 +162,23 @@ def test_canvas_brand_persist(client, tmp_path, monkeypatch):
     html=z.read("index.html").decode()
     assert "TestBrand" in html
     assert "#ABCDEF" in html or "ABCDEF" in html
+
+def test_canvas_theme(client, tmp_path, monkeypatch):
+    import app as appmod, generator
+    monkeypatch.setattr(appmod, "CANVAS_DIR", str(tmp_path / "canvas_theme"))
+    import os
+    os.makedirs(tmp_path / "canvas_theme", exist_ok=True)
+    monkeypatch.setattr(generator, "SITES_DIR", str(tmp_path / "sites_theme"))
+    os.makedirs(tmp_path / "sites_theme", exist_ok=True)
+    appmod._RATE.clear()
+    r=client.post("/api/canvases")
+    jid=r.json()["id"]
+    r=client.post(f"/api/canvas/{jid}", json={"blocks":[{"id":"h1","type":"heading","x":0,"y":0,"w":100,"h":50,"z":1,"props":{"text":"hi","size":20,"color":"#000"}}], "theme":{"mode":"dark","accent":"emerald"}})
+    assert r.status_code==200
+    r=client.get(f"/api/canvas/{jid}")
+    assert r.json()["theme"]["mode"]=="dark"
+    r=client.post(f"/api/canvas/{jid}/publish")
+    assert r.status_code==200
+    r=client.get(f"/api/site/{jid}/json")
+    assert r.json()["theme"]["mode"]=="dark"
+    assert r.json()["theme"]["accent"]=="emerald"

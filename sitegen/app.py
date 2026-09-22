@@ -1093,6 +1093,7 @@ class CanvasIn(BaseModel):
     bg: str | None = Field(default=None, max_length=20)
     h: int | None = Field(default=None, ge=400, le=4000)
     brand: str | None = Field(default=None, max_length=80)
+    theme: dict | None = Field(default=None)
 
 _CANVAS_ALLOWED_TYPES = {"heading","text","button","image","form","divider"}
 _CANVAS_MAX_BLOCKS = 80
@@ -1140,12 +1141,13 @@ def _canvas_load_history(job_id):
             return d if isinstance(d, list) else []
         except: return []
     return []
-def _canvas_push_history(job_id, blocks, bg=None, h=None, brand=None):
+def _canvas_push_history(job_id, blocks, bg=None, h=None, brand=None, theme=None):
     hist=_canvas_load_history(job_id)
     snap={"ts": int(time.time()), "blocks": blocks}
     if bg: snap["bg"]=bg
     if h: snap["h"]=h
     if brand: snap["brand"]=brand
+    if theme: snap["theme"]=theme
     # avoid duplicate consecutive
     import json as _j
     if hist and _j.dumps(hist[-1].get("blocks"), sort_keys=True)==_j.dumps(blocks, sort_keys=True) and hist[-1].get("bg")==bg and hist[-1].get("h")==h:
@@ -1166,20 +1168,22 @@ def _canvas_esc(s): return str(s or "").replace("&","&amp;").replace("<","&lt;")
 def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
     from design import build_css, FONTS_LINK
     site_prev = site_prev or {}
-    theme = site_prev.get("theme") or {"mode": "light", "accent": "purple"}
-    accent = theme.get("accent") or "purple"
-    mode = theme.get("mode") or "light"
-    css = build_css(mode, accent)
-    # brand优先 from canvas file meta, then site
+    # theme already resolved above
+    # css already built
+    # brand/theme from canvas file meta, then site
     try:
         _p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
         if os.path.exists(_p):
             import json as _jj
             with open(_p, encoding="utf-8") as _ff:
                 _dd=_jj.load(_ff)
-                if isinstance(_dd, dict) and _dd.get("brand"):
-                    site_prev=dict(site_prev)  # copy not to mutate original
-                    site_prev["brand"]=_dd.get("brand")
+                if isinstance(_dd, dict):
+                    if _dd.get("brand"):
+                        site_prev=dict(site_prev)
+                        site_prev["brand"]=_dd.get("brand")
+                    if _dd.get("theme") and isinstance(_dd.get("theme"), dict):
+                        site_prev=dict(site_prev)
+                        site_prev["theme"]=_dd.get("theme")
     except: pass
     brand = site_prev.get("brand") or "Nelvi Canvas"
     esc=_canvas_esc
@@ -1199,6 +1203,26 @@ def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
                     if not site_prev.get("canvas_h") and _dd.get("h"):
                         canvas_h=_dd.get("h")
     except: pass
+    # theme for css: from site_prev theme or canvas file theme
+    theme = site_prev.get("theme") or {"mode": "light", "accent": "purple"}
+    try:
+        _p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+        if os.path.exists(_p):
+            import json as _jj2
+            with open(_p, encoding="utf-8") as _ff2:
+                _dd2=_jj2.load(_ff2)
+                if isinstance(_dd2, dict) and isinstance(_dd2.get("theme"), dict):
+                    theme=_dd2.get("theme")
+    except: pass
+    accent = theme.get("accent") or "purple"
+    mode = theme.get("mode") or "light"
+    # validate
+    import design as _design
+    if mode not in _design.MODES: mode="light"
+    if accent not in _design.ACCENTS: accent="purple"
+    theme={"mode": mode, "accent": accent}
+    from design import build_css, FONTS_LINK
+    css = build_css(mode, accent)
     inner=""
     for b in sorted(blocks, key=lambda x: x.get("z",0)):
         x=b.get("x",0); y=b.get("y",0); w=b.get("w",100); h=b.get("h",40); z=b.get("z",1)
@@ -1229,6 +1253,7 @@ def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
     html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:{ch}px;margin:40px auto;background:{bg_safe};border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
     site = site_prev or {"brand": brand, "kind": "canvas", "theme": theme, "sections": []}
     site["kind"]="canvas"
+    site["theme"]=theme
     site["canvas_blocks"]=blocks
     # preserve canvas chrome
     try:
@@ -1263,7 +1288,8 @@ def list_canvases():
                     bg=data.get("bg") if isinstance(data, dict) else None
                     h=data.get("h") if isinstance(data, dict) else None
                     brand=data.get("brand") if isinstance(data, dict) else None
-                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid)), "bg": bg, "h": h, "brand": brand})
+                    theme=data.get("theme") if isinstance(data, dict) else None
+                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid)), "bg": bg, "h": h, "brand": brand, "theme": theme})
             except: out.append({"id": jid, "blocks": 0})
         return {"canvases": out}
     except Exception as e:
@@ -1316,12 +1342,13 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
     if err:
         return JSONResponse({"error": err}, status_code=400)
     p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
-    # merge meta: if bg/h/brand not provided, keep existing
+    # merge meta: if bg/h/brand/theme not provided, keep existing
     bg = body.bg
     h = body.h
     brand = body.brand
+    theme = body.theme
     # if not provided, try to keep old file's meta
-    if bg is None or h is None or brand is None:
+    if bg is None or h is None or brand is None or theme is None:
         try:
             if os.path.exists(p):
                 with open(p, encoding="utf-8") as _f:
@@ -1329,15 +1356,17 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
                     if bg is None: bg=_old.get("bg")
                     if h is None: h=_old.get("h")
                     if brand is None: brand=_old.get("brand")
+                    if theme is None: theme=_old.get("theme")
         except: pass
     data = {"blocks": body.blocks}
     if bg: data["bg"]=bg
     if h: data["h"]=h
     if brand: data["brand"]=brand
+    if theme: data["theme"]=theme
     # history: save previous blocks if changed
     try:
         _old_blocks=None
-        _old_bg=None; _old_h=None; _old_brand=None
+        _old_bg=None; _old_h=None; _old_brand=None; _old_theme=None
         if os.path.exists(p):
             import json as _hj
             with open(p, encoding="utf-8") as _hf:
@@ -1346,10 +1375,11 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
                 _old_bg=_od.get("bg")
                 _old_h=_od.get("h")
                 _old_brand=_od.get("brand")
+                _old_theme=_od.get("theme")
         if _old_blocks is not None:
             import json as _j3
-            if _j3.dumps(_old_blocks, sort_keys=True)!=_j3.dumps(body.blocks, sort_keys=True) or _old_bg!=bg or _old_h!=h or _old_brand!=brand:
-                _canvas_push_history(job_id, _old_blocks, _old_bg, _old_h, _old_brand)
+            if _j3.dumps(_old_blocks, sort_keys=True)!=_j3.dumps(body.blocks, sort_keys=True) or _old_bg!=bg or _old_h!=h or _old_brand!=brand or _old_theme!=theme:
+                _canvas_push_history(job_id, _old_blocks, _old_bg, _old_h, _old_brand, _old_theme)
     except: pass
     try:
         with open(p, "w", encoding="utf-8") as f:
@@ -1424,18 +1454,22 @@ def duplicate_canvas(job_id: str, request: Request):
             b["y"]=int(b.get("y",0))+16
             # ensure new ids for inner?
         except: pass
-    # also copy bg/h meta
-    bg=None; h=None
+    # also copy bg/h/brand/theme meta
+    bg=None; h=None; brand=None; theme=None
     try:
         if isinstance(data, dict):
             bg=data.get("bg")
             h=data.get("h")
+            brand=data.get("brand")
+            theme=data.get("theme")
     except: pass
     np=os.path.join(CANVAS_DIR, f"canvas-{new_id}.json")
     try:
         payload={"blocks": new_blocks}
         if bg: payload["bg"]=bg
         if h: payload["h"]=h
+        if brand: payload["brand"]=brand
+        if theme: payload["theme"]=theme
         with open(np,"w",encoding="utf-8") as f: json.dump(payload, f, ensure_ascii=False)
         # duplicate site if exists
         site=generator.get_site_dict(job_id)
@@ -1458,14 +1492,14 @@ def canvas_history(job_id: str):
     # return summary without full blocks to keep payload light, but include blocks count
     out=[]
     for i, snap in enumerate(hist):
-        out.append({"idx": i, "ts": snap.get("ts"), "blocks": len(snap.get("blocks") or []), "bg": snap.get("bg"), "h": snap.get("h"), "brand": snap.get("brand")})
+        out.append({"idx": i, "ts": snap.get("ts"), "blocks": len(snap.get("blocks") or []), "bg": snap.get("bg"), "h": snap.get("h"), "brand": snap.get("brand"), "theme": snap.get("theme")})
     # also include current
     cur=None
     p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
     if os.path.exists(p):
         try:
             with open(p, encoding="utf-8") as f: cur=json.load(f)
-            out.append({"idx": len(hist), "ts": int(time.time()), "blocks": len(cur.get("blocks") or []), "bg": cur.get("bg"), "h": cur.get("h"), "brand": cur.get("brand"), "current": True})
+            out.append({"idx": len(hist), "ts": int(time.time()), "blocks": len(cur.get("blocks") or []), "bg": cur.get("bg"), "h": cur.get("h"), "brand": cur.get("brand"), "theme": cur.get("theme"), "current": True})
         except: pass
     return {"history": out, "count": len(hist)}
 
@@ -1486,6 +1520,7 @@ def canvas_undo(job_id: str, request: Request):
         if snap.get("bg"): payload["bg"]=snap.get("bg")
         if snap.get("h"): payload["h"]=snap.get("h")
         if snap.get("brand"): payload["brand"]=snap.get("brand")
+        if snap.get("theme"): payload["theme"]=snap.get("theme")
         with open(p, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         # save back history
