@@ -41,6 +41,23 @@ SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASS = os.environ.get("SMTP_PASS", "").strip()
 SMTP_FROM = os.environ.get("SMTP_FROM", "noreply@nelvi.app").strip()
 
+# Nelvi prod
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+BASE_URL = os.environ.get("BASE_URL", "").strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+DOMAIN = os.environ.get("DOMAIN", "").strip() or os.environ.get("SITEGEN_DOMAIN", "").strip()
+
+# простая модерация — список стоп-слов (можно расширять, в проде — LLM-модерация)
+_BANNED_SUBSTR = ["спайс", "наркоти", "порно", "casino", "казино"]
+def _moderate_text(text: str) -> str | None:
+    low = (text or "").lower()
+    for w in _BANNED_SUBSTR:
+        if w in low:
+            return w
+    return None
+
 AUTH_CODE_TTL = 600       # код живёт 10 минут
 AUTH_RESEND_COOLDOWN = 44  # как таймер на фронте
 AUTH_MAX_FAILS = 5
@@ -65,6 +82,7 @@ RATE_LIMITS = {
     "import": (20, 3600),     # импорт по URL
     "export": (60, 3600),
     "publish": (20, 3600),
+    "billing": (20, 86400),   # биллинг/тарифы
 }
 _RATE = {}
 _RATE_LOCK = threading.Lock()
@@ -167,6 +185,10 @@ def config():
     except Exception:
         s3_on = False
         s3_bucket = ""
+    # prod flags
+    pg_on = bool(DATABASE_URL)
+    redis_on = bool(REDIS_URL)
+    tg_on = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
     return {
         "llm": llm.is_configured(),
         "model": llm.MODEL if llm.is_configured() else None,
@@ -178,6 +200,11 @@ def config():
         "kinds": ["landing", "taplink", "vcard"],
         "s3": s3_on,
         "s3_bucket": s3_bucket,
+        "postgres": pg_on,
+        "redis": redis_on,
+        "telegram": tg_on,
+        "base_url": BASE_URL,
+        "domain": DOMAIN,
     }
 
 
@@ -224,6 +251,11 @@ def generate(body: GenerateIn, request: Request):
         "Преимущества": body.advantages,
         "Дополнительно": body.extras,
     }
+    # модерация (лёгкая, до LLM чтобы не тратить токены)
+    combined = " ".join([body.name, body.about, body.products, body.advantages, body.extras])
+    bad = _moderate_text(combined)
+    if bad:
+        return JSONResponse({"error": f"Контент отклонён модерацией (найдено: {bad}) — проверьте формулировки"}, status_code=400)
     job_id = generator.start_job(answers, body.theme_mode, body.accent, site_kind=kind)
     return {"job_id": job_id, "kind": kind}
 
@@ -589,6 +621,164 @@ def site_page(job_id: str):
     return HTMLResponse(html)
 
 
+# -------------------------------------------------- caddy / sitemap / domain ----
+@app.get("/api/caddy/ask")
+def caddy_ask(request: Request, domain: str = ""):
+    # Caddy on-demand TLS: ?domain=xxx — разрешаем если домен наш или поддомен
+    dom = (domain or request.query_params.get("domain") or "").strip().lower().split(":")[0]
+    if not dom:
+        # Caddy иногда шлёт без параметра — берём host из заголовков
+        dom = (request.headers.get("host") or "").split(":")[0].lower()
+    if not dom:
+        return JSONResponse({"error": "no domain"}, status_code=400)
+    if dom in ("localhost", "127.0.0.1", "app"):
+        return {"ok": True}
+    allowed = (DOMAIN or "").strip().lower()
+    if allowed and (dom == allowed or dom.endswith("." + allowed)):
+        return {"ok": True}
+    if dom.endswith(".nelvi.app") or dom.endswith(".nelvi.local"):
+        return {"ok": True}
+    # fallback — разрешаем любой поддомен если base_url содержит домен
+    return JSONResponse({"error": "not allowed"}, status_code=403)
+
+
+@app.get("/sitemap.xml")
+@app.get("/api/sitemap.xml")
+def global_sitemap(request: Request):
+    base = str(request.base_url).rstrip("/")
+    # собираем id из SITES_DIR
+    try:
+        ids = [f[:-5] for f in os.listdir(generator.SITES_DIR) if f.endswith(".html") and _valid_job_id(f[:-5])]
+    except Exception:
+        ids = []
+    ids = sorted(ids)[:5000]
+    lastmod = time.strftime("%Y-%m-%d")
+    urls = "\n".join(f"  <url><loc>{base}/api/site/{jid}</loc><lastmod>{lastmod}</lastmod></url>" for jid in ids[:1000])
+    # also include Pages url if DOMAIN
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{urls}
+</urlset>"""
+    from fastapi.responses import Response
+    return Response(content=xml.encode(), media_type="application/xml; charset=utf-8")
+
+
+class DomainIn(BaseModel):
+    domain: str = Field(min_length=1, max_length=253)
+
+
+@app.post("/api/site/{job_id}/domain")
+def set_custom_domain(job_id: str, body: DomainIn, request: Request):
+    if not _valid_job_id(job_id):
+        return _no_job()
+    site = generator.get_site_dict(job_id)
+    if not site:
+        return _no_job()
+    dom = body.domain.strip().lower().rstrip(".")
+    # строгая валидация домена: labels 1-63, общий 4..253, без пустых label (\"..\")
+    if ".." in dom or dom.startswith(".") or dom.startswith("-") or dom.endswith("-"):
+        return JSONResponse({"error": "Некорректный домен (например example.com)"}, status_code=400)
+    if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}", dom):
+        return JSONResponse({"error": "Некорректный домен (например example.com)"}, status_code=400)
+    if dom.endswith(".local") or dom.startswith("-"):
+        return JSONResponse({"error": "Домен недоступен"}, status_code=400)
+    site["custom_domain"] = dom
+    # сохранить
+    html = generator.get_site_html(job_id) or ""
+    generator._save_all(job_id, site, html, False)
+    return {"ok": True, "domain": dom, "url": f"https://{dom}"}
+
+
+@app.get("/api/site/{job_id}/p/{slug}", response_class=HTMLResponse)
+def site_product_page(job_id: str, slug: str, request: Request):
+    if not _valid_job_id(job_id):
+        return HTMLResponse("<h1>Сайт не найден</h1>", status_code=404)
+    site = generator.get_site_dict(job_id)
+    html = generator.get_site_html(job_id)
+    if not site or not html:
+        return HTMLResponse("<h1>Сайт не найден</h1>", status_code=404)
+
+    def _slug_for(name: str, idx: int = 0) -> str:
+        name = (name or "").strip()
+        # keep unicode letters/digits for Cyrillic slugs; fallback to item-N
+        s = re.sub(r"[^\w]+", "-", name.lower(), flags=re.UNICODE).strip("-")[:60]
+        # if slug lost all chars (e.g., pure ascii filtered?) fallback
+        if not s or s == "-":
+            s = f"item-{idx}" if idx else "item"
+        return s
+
+    # ищем по всем секциям с items, где есть name/title (services/prices/products)
+    prod = None
+    prod_idx = -1
+    all_candidates: list[tuple[dict, str]] = []
+    for s in (site.get("sections") or []):
+        items = s.get("items") or []
+        # поддерживаем секции services/prices/products и аналоги
+        if s.get("type") in ("products", "services", "prices") or any(isinstance(it, dict) and (it.get("name") or it.get("title")) for it in items):
+            for idx, it in enumerate(items):
+                if not isinstance(it, dict):
+                    continue
+                name = (it.get("name") or it.get("title") or "").strip()
+                if not name:
+                    continue
+                cand_slug = it.get("slug") or _slug_for(name, idx)
+                all_candidates.append((it, cand_slug))
+                if cand_slug == slug or slug == cand_slug.lower():
+                    prod = it
+                    prod_idx = idx
+                    break
+        if prod:
+            break
+    # попытка по частичному совпадению (slug in s_slug) для совместимости
+    if not prod:
+        for it, cand_slug in all_candidates:
+            if slug in cand_slug or cand_slug in slug:
+                prod = it
+                break
+    if not prod and all_candidates:
+        # fallback: первый товар/услуга
+        prod = all_candidates[0][0]
+    if not prod:
+        return HTMLResponse("<h1>Товар не найден</h1>", status_code=404)
+    # рендерим мини-страницу товара в стиле сайта
+    from design import build_css, FONTS_LINK
+    theme = site.get("theme") or {}
+    accent = theme.get("accent") or "purple"
+    mode = theme.get("mode") or "light"
+    css = build_css(mode, accent)
+    brand = site.get("brand") or "Nelvi"
+    title = prod.get("name", "Товар")
+    price = prod.get("price", "")
+    desc = prod.get("desc", "")
+    img_emoji = prod.get("emoji", "🛍️")
+    # og
+    og_url = str(request.base_url).rstrip("/") + f"/api/site/{job_id}/p/{slug}"
+    # try to find image for og
+    site_html = html
+    page = f"""<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — {brand}</title>
+<meta name="description" content="{desc[:160]}">
+<meta property="og:title" content="{title} — {brand}">
+<meta property="og:description" content="{desc[:160]}">
+<meta property="og:url" content="{og_url}">
+<meta property="og:type" content="product">
+{FONTS_LINK}
+<style>{css}</style>
+</head><body>
+<div class="hdr"><div class="wrap hdr-in"><a class="logo" href="/api/site/{job_id}"><span class="logo-mark" style="width:28px;height:28px;border-radius:8px"><svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span>{brand}</a><a class="btn ghost" href="/api/site/{job_id}">← На главную</a></div></div>
+<div class="wrap section"><div style="max-width:720px;margin:0 auto">
+<div style="font-size:64px;text-align:center;margin-bottom:18px">{img_emoji}</div>
+<h1 style="text-align:center">{title}</h1>
+<p class="lead" style="text-align:center;margin:0 auto 18px">{desc}</p>
+<div style="text-align:center;font-family:'Unbounded',sans-serif;font-size:22px;color:var(--accent);margin:18px 0">{price}</div>
+<div style="display:flex;gap:12px;justify-content:center"><a class="btn" href="/api/site/{job_id}#catalog">В каталог</a><a class="btn ghost" href="/api/site/{job_id}#contacts">Заказать</a></div>
+</div></div>
+<footer class="ftr"><div class="wrap ftr-in"><span>© 2026 {brand}</span><span><a href="/api/site/{job_id}">На главную</a></span></div></footer>
+</body></html>"""
+    return HTMLResponse(page)
+
+
 # -------------------------------------------------------------- редактор ----
 
 @app.post("/api/chat/{job_id}")
@@ -714,6 +904,15 @@ def lead(site_id: str, body: LeadIn, request: Request):
             pass
     tag = "CART" if body.type == "cart" else "LEAD"
     print(f"[{tag}] site={site_id} {body.model_dump()}")
+    # Telegram — если задан TELEGRAM_BOT_TOKEN/CHAT_ID
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        try:
+            import httpx
+            items_str = "; ".join(f"{it.get('qty',1)}x{it.get('name','')}" for it in (body.items or [])[:6])
+            txt = f"📥 {'Заказ' if body.type=='cart' else 'Заявка'} {site_id}\n👤 {body.name} {body.phone}\n💬 {body.comment[:400]}\n🛒 {items_str[:500]}\n🔗 https://{DOMAIN or 'nelvi.app'}/api/site/{site_id}" if DOMAIN else f"📥 {tag} {site_id}\n👤 {body.name} {body.phone}\n💬 {body.comment[:400]}"
+            httpx.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TELEGRAM_CHAT_ID, "text": txt[:4000]}, timeout=6)
+        except Exception:
+            pass
     return {"ok": True}
 
 

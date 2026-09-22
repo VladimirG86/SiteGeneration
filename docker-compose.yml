@@ -1,15 +1,62 @@
-# Прод-подобный стенд: приложение + персистентный volume под сайты/заявки.
+# Nelvi — прод-стенд: app + Postgres + Redis + Caddy (авто-SSL, поддомены *.nelvi.app)
 # Ключи — в корневом .env (скопируй из sitegen/.env.example):
 #   cp sitegen/.env.example .env && docker compose up --build
+# Для локалки без домена — просто: docker compose up --build (Caddy на :80)
 services:
   app:
     build: .
     env_file: [.env]
     environment:
       SITEGEN_DATA_DIR: /data
+      DATABASE_URL: ${DATABASE_URL:-}
+      REDIS_URL: ${REDIS_URL:-}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     ports: ["8000:8000"]
     volumes: [sitegen-data:/data]
     restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/config"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nelvi}
+      POSTGRES_USER: ${POSTGRES_USER:-nelvi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nelvi}
+    volumes: [pg-data:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+    ports: ["6379:6379"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [app]
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
 
 volumes:
   sitegen-data:
+  pg-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
