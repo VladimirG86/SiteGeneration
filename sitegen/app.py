@@ -1527,6 +1527,13 @@ def canvas_zip(job_id: str, request: Request):
         # also include site json for debug
         try: z.writestr("site.json", json.dumps(site, ensure_ascii=False, indent=2))
         except: pass
+        # sitemap for canvas
+        try:
+            base=str(request.base_url).rstrip("/")
+            sitemap=f"""<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{base}/api/site/{job_id}</loc><lastmod>{__import__('time').strftime('%Y-%m-%d')}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url></urlset>"""
+            z.writestr("sitemap.xml", sitemap)
+            z.writestr("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {base}/api/site/{job_id}/sitemap.xml\n")
+        except: pass
     buf.seek(0)
     from fastapi.responses import Response
     return Response(content=buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="canvas-{job_id}.zip"'})

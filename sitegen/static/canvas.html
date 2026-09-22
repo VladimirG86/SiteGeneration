@@ -101,6 +101,9 @@ body{overflow:hidden}
     <button onclick="loadTemplate('hero')"><span>🏔️</span> Hero</button>
     <button onclick="loadTemplate('features')"><span>✨</span> Преимущества 3×</button>
     <button onclick="loadTemplate('contact')"><span>📞</span> Контакты</button>
+    <button onclick="loadTemplate('pricing')"><span>💰</span> Прайс 3×</button>
+    <button onclick="loadTemplate('testimonial')"><span>💬</span> Отзывы 2×</button>
+    <button onclick="loadTemplate('cta')"><span>🚀</span> CTA баннер</button>
     <div style="padding:12px" class="hint2">Таскай блоки, тяни за углы. Двойной клик — править текст. <b>Del</b> удалить, <b>Ctrl+Z/Y</b> история, стрелки — сдвиг 1px (Shift 10px).</div>
   </div>
   <div class="canvas-area" id="area">
@@ -259,6 +262,10 @@ function loadTemplate(t){
   if(t==='hero'){ blocks=blocks.concat([{id:uid(),type:'heading',x:48,y:480,w:520,h:64,z:10,props:{text:'Преимущества',size:24,color:'#2B2B36'}},{id:uid(),type:'text',x:48,y:552,w:520,h:48,z:11,props:{text:'Три факта с цифрами — без воды',size:14,color:'#7A7A8E'}}]);}
   if(t==='features'){ for(let i=0;i<3;i++) blocks.push({id:uid(),type:'text',x:48+i*360,y:620,w:320,h:100,z:12+i,props:{text:'✨ Фича '+(i+1)+'\nС цифрой и фактом',size:13,color:'#2B2B36',bg:'#fff',border:'#E7E5F0'}}); }
   if(t==='contact'){ blocks.push({id:uid(),type:'form',x:640,y:480,w:432,h:220,z:20,props:{title:'Связаться'}}); }
+  if(t==='pricing'){ for(let i=0;i<3;i++) blocks.push({id:uid(),type:'text',x:48+i*360,y:720,w:320,h:140,z:22+i,props:{text:'Тариф '+(i+1)+'\n'+['Базовый — 1 900 ₽','Стандарт — 3 900 ₽','Премиум — 7 900 ₽'][i]+'\n✓ Выезд ✓ Гарантия',size:13,color:'#2B2B36',bg:'#fff',border:'#E7E5F0'}}); }
+  if(t==='testimonial'){ for(let i=0;i<2;i++) blocks.push({id:uid(),type:'text',x:48+i*560,y:880,w:520,h:100,z:25+i,props:{text:'“'+['Отлично сделали, быстро и аккуратно','Рекомендую — всё по договору'][i]+'”\n— '+['Иван, Казань','Анна, Москва'][i],size:13,color:'#2B2B36',bg:'#F3F2F8',border:'#E7E5F0'}}); }
+  if(t==='cta'){ blocks.push({id:uid(),type:'heading',x:48,y:1000,w:620,h:48,z:28,props:{text:'Готовы начать? — Оставьте заявку',size:22,color:'#fff'}}); blocks.push({id:uid(),type:'button',x:48,y:1060,w:200,h:46,z:29,props:{text:'Оставить заявку →',bg:'#2EC4B6',color:'#fff',radius:12}}); blocks.push({id:uid(),type:'text',x:680,y:1000,w:380,h:100,z:30,props:{text:'Звоним за 5 минут\nРаботаем 9-21 без выходных',size:12,color:'#7A7A8E',bg:'#EDEFFF',border:'#CFCDE6'}}); }
+
   pushHist(); render(); save(false);
 }
 async function importLandingReal(){
