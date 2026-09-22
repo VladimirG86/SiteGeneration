@@ -245,8 +245,132 @@ def extract_signals(html: str, base_url: str) -> dict:
 
 # ------------------------------------------------------ LLM normalize ---
 
+# --- автопалитра: мапим найденные hex на ближайший акцент ---
+_ACCENT_RGB = {
+    "purple": (124, 58, 237),
+    "blue": (37, 99, 235),
+    "emerald": (5, 150, 105),
+    "orange": (234, 88, 12),
+    "rose": (225, 29, 72),
+    "teal": (13, 148, 136),
+}
+
+
+def _hex_to_rgb(h: str):
+    h = h.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        return None
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except ValueError:
+        return None
+
+
+def pick_accent_from_colors(hex_colors: list) -> str | None:
+    """Находит акцент, ближайший к доминирующим цветам оригинала."""
+    if not hex_colors:
+        return None
+    best, best_dist = None, 1e9
+    for hex_c in hex_colors[:6]:
+        rgb = _hex_to_rgb(hex_c)
+        if not rgb:
+            continue
+        # игнорируем слишком светлые/тёмные/серые (низкая насыщенность)
+        r, g, b = rgb
+        mx, mn = max(rgb), min(rgb)
+        if mx < 40 or mx > 245 and mn > 220:  # почти чёрный/белый
+            continue
+        if mx - mn < 18:  # серый
+            continue
+        for name, ar in _ACCENT_RGB.items():
+            d = (r - ar[0]) ** 2 + (g - ar[1]) ** 2 + (b - ar[2]) ** 2
+            if d < best_dist:
+                best_dist, best = d, name
+    # только если достаточно близко (иначе оставляем дефолт)
+    if best is not None and best_dist < 14000:  # ~118 per channel
+        return best
+    return None
+
+
+def _download_image_bytes(url: str, timeout: float = 9.0, max_bytes: int = 4_500_000) -> bytes | None:
+    try:
+        # SSRF-проверка для картинок (те же правила)
+        validate_url(url)
+    except ValueError:
+        return None
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=3,
+                          headers={"User-Agent": "SborkaImport/1.0"}) as cl:
+            r = cl.get(url)
+            r.raise_for_status()
+            ctype = r.headers.get("content-type", "")
+            if ctype and "image" not in ctype.lower():
+                return None
+            data = r.content
+            if not data or len(data) > max_bytes:
+                return None
+            return data
+    except Exception:
+        return None
+
+
+def _to_webp(data: bytes, max_side: int = 900) -> bytes | None:
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        # учитываем EXIF повороты
+        try:
+            from PIL import ImageOps
+            im = ImageOps.exif_transpose(im)
+        except Exception:
+            pass
+        im.thumbnail((max_side, max_side))
+        buf = io.BytesIO()
+        im.save(buf, "WEBP", quality=82, method=6)
+        out = buf.getvalue()
+        if len(out) > 900_000:
+            # пережать сильнее если велико
+            buf = io.BytesIO()
+            im.save(buf, "WEBP", quality=76, method=6)
+            out = buf.getvalue()
+        return out
+    except Exception:
+        return None
+
+
+def try_attach_original_images(site: dict, signals: dict, job_id: str) -> bool:
+    """Пытается скачать первое фото оригинала и поставить как hero. True если удалось."""
+    imgs = [u for u in (signals.get("images") or []) if u and isinstance(u, str)]
+    if not imgs:
+        return False
+    # берём первые 3 — часто первое — лого, поэтому пробуем по очереди
+    for img_url in imgs[:3]:
+        data = _download_image_bytes(img_url)
+        if not data:
+            continue
+        webp = _to_webp(data, max_side=900)
+        if not webp or len(webp) < 5000:  # слишком мало — возможно трекер-пиксель
+            continue
+        try:
+            from images import _save_asset
+            _save_asset(job_id, "hero.webp", webp)
+            site["hero_image"] = True
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def heuristic_site(signals: dict, theme_mode: str = "light", accent: str = "purple") -> dict:
     """Детерминированный фолбэк без LLM: собирает минимальный сайт из сигналов."""
+    # автопалитра: если дефолт — попробуем ближайший к оригиналу
+    if accent == "purple":
+        picked = pick_accent_from_colors(signals.get("colors") or [])
+        if picked:
+            accent = picked
     title = signals.get("title") or (signals.get("h1") or ["Компания"])[0]
     brand = title[:80].strip() or "Компания"
     desc = signals.get("description") or " ".join(signals.get("paragraphs") or [])[:160] or f"{brand} — услуги для клиентов"
@@ -309,6 +433,12 @@ def build_llm_site(signals: dict, theme_mode: str = "light", accent: str = "purp
     import llm
     import chat as chat_ops
     import design
+
+    # автопалитра до выбора модели (LLM увидит правильный акцент)
+    if accent == "purple":
+        picked = pick_accent_from_colors(signals.get("colors") or [])
+        if picked:
+            accent = picked
 
     if not llm.is_configured():
         site = heuristic_site(signals, theme_mode, accent)

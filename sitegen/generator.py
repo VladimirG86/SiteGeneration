@@ -306,13 +306,26 @@ def run_import_job(job_id: str):
         time.sleep(0.4)
         # 3. Вёрстка
         _set_stage(job, 3)
-        site["theme"] = {"mode": theme_mode, "accent": accent}
+        # финальный акцент: importer мог подобрать автопалитру — уважаем её
+        final_accent = site.get("theme", {}).get("accent") or accent
+        # если импорт вернул purple а у нас были яркие цвета — пробуем подобрать
+        if final_accent == "purple" and accent == "purple":
+            picked = importer.pick_accent_from_colors(signals.get("colors") or [])
+            if picked:
+                final_accent = picked
+        site["theme"] = {"mode": theme_mode, "accent": final_accent}
+        job["theme"]["accent"] = final_accent  # чтобы /api/job отражал реальный
         site["import_source"] = final_url
         site["features"] = site.get("features") or {"cart": False}
+        # пробуем подтянуть оригинальное фото (не критично, тихо)
+        try:
+            importer.try_attach_original_images(site, signals, job_id)
+        except Exception as e:  # noqa: BLE001
+            print(f"[IMPORT] image attach skipped: {e}")
         chat_ops.ensure_ids(site)
         html_out = sections.render_page(site, site_id=job_id)
         time.sleep(0.6)
-        # 4. Финализация (пока без картинок — оставляем оригинальную цветовую идею)
+        # 4. Финализация
         _set_stage(job, 4)
         time.sleep(0.4)
         job["html"] = html_out

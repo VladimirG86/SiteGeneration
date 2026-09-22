@@ -651,9 +651,11 @@ async function beginImportPolling(jobId) {
   // пока не знаем стадий — нарисуем заглушку, обновим из /api/job
   ul.innerHTML = '<li class="current"><span class="st-dot">' + I.spinner + '</span><span>Загружаем сайт<small class="st-hint">Скачиваем страницу</small></span></li>';
   $('#progress-fill').style.width = '8%';
+  let lastJob = null;
   const poll = setInterval(async () => {
     let job;
     try { job = await (await fetch('/api/job/' + jobId)).json(); } catch (e) { return; }
+    lastJob = job;
     const stages = job.stages || [];
     const hints = job.hints || [];
     ul.innerHTML = stages.map((s) => `<li><span class="st-dot"></span><span>${s}<small class="st-hint"></small></span></li>`).join('');
@@ -670,7 +672,7 @@ async function beginImportPolling(jobId) {
     if (job.status === 'done') {
       clearInterval(poll);
       if (job.warning) { $('#gen-warning').textContent = job.warning; $('#gen-warning').classList.remove('hidden'); }
-      setTimeout(() => showResult(jobId, started), job.warning ? 1400 : 500);
+      setTimeout(() => showResult(jobId, started, lastJob), job.warning ? 1400 : 500);
     } else if (job.status === 'error') {
       clearInterval(poll);
       genError('Ошибка импорта: ' + (job.error || 'неизвестная'));
@@ -844,9 +846,21 @@ function genError(msg) {
 }
 
 /* ------------------------------------------------------------- result ---- */
-function showResult(jobId, started) {
+function showResult(jobId, started, job) {
   const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
-  $('#result-sub').textContent = `Сайт собран за ${secs} c. Дальше — интереснее: откройте редактор и скажите ИИ, что изменить (например, «сделай интернет-магазин»).`;
+  const isImport = job && job.kind === 'import' && job.source_url;
+  $('#result-sub').textContent = isImport
+    ? `Сайт перенесён за ${secs} c. Откройте редактор — дальше правьте чатом как обычный сайт.`
+    : `Сайт собран за ${secs} c. Дальше — интереснее: откройте редактор и скажите ИИ, что изменить (например, «сделай интернет-магазин»).`;
+  const srcNote = $('#import-source-note');
+  if (srcNote) {
+    if (isImport) {
+      srcNote.innerHTML = `Оригинал: <a href="${escapeHtml(job.source_url)}" target="_blank" rel="noopener">${escapeHtml(job.source_url)}</a> · <span style="color:var(--muted)">экспорт — ZIP или WordPress ниже</span>`;
+      srcNote.classList.remove('hidden');
+    } else {
+      srcNote.classList.add('hidden');
+    }
+  }
   const url = '/api/site/' + jobId;
   const frame = $('#site-frame');
   frame.src = url;
