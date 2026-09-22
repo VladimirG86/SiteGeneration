@@ -205,6 +205,13 @@
     </div>
   </section>
   <script>
+  async function dupCanvas(id){
+    try{ const r=await fetch('/api/canvas/'+encodeURIComponent(id)+'/duplicate', {method:'POST'}); const j=await r.json(); if(!r.ok) throw new Error(j.error||r.status); alert('Дублировано: '+j.id); refreshCanvases(); }catch(e){ alert('Ошибка: '+e.message); }
+  }
+  async function delCanvas(id){
+    if(!confirm('Удалить '+id+'?')) return;
+    try{ const r=await fetch('/api/canvas/'+encodeURIComponent(id), {method:'DELETE'}); const j=await r.json(); if(!r.ok) throw new Error(j.error||r.status); refreshCanvases(); }catch(e){ alert('Ошибка: '+e.message); }
+  }
   async function refreshCanvases(){
     const box=document.getElementById('canvas-list');
     if(!box) return;
@@ -214,7 +221,7 @@
       const j=await r.json();
       const cs=j.canvases||[];
       if(!cs.length){ box.innerHTML='<div class="hint2">Пока пусто — создай первый канвас на <a href="/canvas">/canvas</a></div>'; return; }
-      box.innerHTML=cs.map(c=>'<div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px;background:#FAF9F7"><b style="font-size:13px">'+c.id+'</b><span class="hint2">'+c.blocks+' блоков</span><span style="margin-left:auto;display:flex;gap:6px"><a class="btn-ghost small" href="/canvas?id='+encodeURIComponent(c.id)+'">Открыть</a><a class="btn-ghost small" href="/api/canvas/'+encodeURIComponent(c.id)+'/zip">ZIP</a><a class="btn-ghost small" href="/api/site/'+encodeURIComponent(c.id)+'" target="_blank">Сайт</a></span></div>').join('');
+      box.innerHTML=cs.map(c=>'<div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px;background:#FAF9F7"><b style="font-size:13px">'+c.id+'</b><span class="hint2">'+c.blocks+' блоков</span><span style="margin-left:auto;display:flex;gap:6px"><a class="btn-ghost small" href="/canvas?id='+encodeURIComponent(c.id)+'">Открыть</a><a class="btn-ghost small" href="/api/canvas/'+encodeURIComponent(c.id)+'/zip">ZIP</a><a class="btn-ghost small" href="/api/site/'+encodeURIComponent(c.id)+'" target="_blank">Сайт</a><button class="btn-ghost small" onclick="dupCanvas(\''+c.id+'\')">Дубль</button><button class="btn-ghost small" onclick="delCanvas(\''+c.id+'\')" style=\"color:#C2410C\">Удалить</button></span></div>').join('');
     }catch(e){ box.innerHTML='<div class="hint2">Ошибка: '+e.message+'</div>'; }
   }
   document.addEventListener('DOMContentLoaded', ()=>{

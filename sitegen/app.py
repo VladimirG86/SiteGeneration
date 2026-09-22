@@ -1091,6 +1091,36 @@ def canvas_editor():
 class CanvasIn(BaseModel):
     blocks: list = Field(default_factory=list)
 
+_CANVAS_ALLOWED_TYPES = {"heading","text","button","image","form","divider"}
+_CANVAS_MAX_BLOCKS = 80
+def _validate_canvas_blocks(blocks):
+    if not isinstance(blocks, list):
+        return "blocks must be list"
+    if len(blocks) > _CANVAS_MAX_BLOCKS:
+        return f"too many blocks ({len(blocks)} > {_CANVAS_MAX_BLOCKS})"
+    for b in blocks:
+        if not isinstance(b, dict):
+            return "block must be object"
+        t=b.get("type")
+        if t not in _CANVAS_ALLOWED_TYPES:
+            return f"bad type {t}"
+        for k in ("x","y","w","h","z"):
+            v=b.get(k)
+            if not isinstance(v,(int,float)):
+                return f"block {k} must be number"
+            if k in ("w","h") and v<1: return f"block {k} too small"
+            if v>5000 or v< -5000: return f"block {k} out of bounds"
+        props=b.get("props")
+        if props is not None and not isinstance(props, dict):
+            return "props must be object"
+        bid=b.get("id")
+        if bid is not None and not isinstance(bid, str):
+            return "id must be string"
+        if bid and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", bid):
+            return f"bad id {bid}"
+    return None
+
+
 CANVAS_DIR = os.path.join(os.path.dirname(generator.SITES_DIR) if hasattr(generator, "SITES_DIR") else BASE_DIR, "canvas")
 try:
     os.makedirs(CANVAS_DIR, exist_ok=True)
@@ -1202,17 +1232,103 @@ def get_canvas(job_id: str):
         return {"blocks": []}
 
 @app.post("/api/canvas/{job_id}")
-def save_canvas(job_id: str, body: CanvasIn):
+def save_canvas(job_id: str, body: CanvasIn, request: Request):
+    if _limited(request, "export"):
+        return _too_many("export")
     if not _valid_job_id(job_id):
         return JSONResponse({"error": "bad id"}, status_code=400)
+    err=_validate_canvas_blocks(body.blocks)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
     p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
     data = {"blocks": body.blocks}
     try:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
+        # S3 mirror if configured
+        try:
+            try: import storage as st
+            except ImportError: import sitegen.storage as st
+            if st.is_s3():
+                st.save_bytes(f"canvas/canvas-{job_id}.json", json.dumps(data, ensure_ascii=False).encode())
+        except Exception: pass
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     return {"ok": True}
+
+@app.delete("/api/canvas/{job_id}")
+def delete_canvas(job_id: str, request: Request):
+    if _limited(request, "export"):
+        return _too_many("export")
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    try:
+        if os.path.exists(p): os.remove(p)
+        # also remove site files if they are canvas kind
+        site=generator.get_site_dict(job_id)
+        if site and site.get("kind")=="canvas":
+            for suf in (".html",".json",".history.json",".chat.json"):
+                pp=os.path.join(generator.SITES_DIR, f"{job_id}{suf}")
+                try:
+                    if os.path.exists(pp): os.remove(pp)
+                except: pass
+        # S3 delete if possible
+        try:
+            try: import storage as st
+            except ImportError: import sitegen.storage as st
+            if st.is_s3():
+                # storage may not have delete, just overwrite empty
+                try: st.save_bytes(f"canvas/canvas-{job_id}.json", b"{}")
+                except: pass
+        except: pass
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return {"ok": True}
+
+@app.post("/api/canvas/{job_id}/duplicate")
+def duplicate_canvas(job_id: str, request: Request):
+    if _limited(request, "export"):
+        return _too_many("export")
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    if not os.path.exists(p):
+        return _no_job()
+    try:
+        with open(p, encoding="utf-8") as f: data=json.load(f)
+        blocks=data.get("blocks",[]) if isinstance(data, dict) else []
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    import uuid
+    new_id=uuid.uuid4().hex[:8]
+    while os.path.exists(os.path.join(CANVAS_DIR, f"canvas-{new_id}.json")):
+        new_id=uuid.uuid4().hex[:8]
+    # shift blocks positions slightly
+    import copy
+    new_blocks=copy.deepcopy(blocks)
+    for b in new_blocks:
+        try:
+            b["x"]=int(b.get("x",0))+16
+            b["y"]=int(b.get("y",0))+16
+            # ensure new ids for inner?
+        except: pass
+    np=os.path.join(CANVAS_DIR, f"canvas-{new_id}.json")
+    try:
+        with open(np,"w",encoding="utf-8") as f: json.dump({"blocks": new_blocks}, f, ensure_ascii=False)
+        # duplicate site if exists
+        site=generator.get_site_dict(job_id)
+        if site and site.get("kind")=="canvas":
+            html=generator.get_site_html(job_id)
+            if html:
+                new_site=copy.deepcopy(site)
+                # keep brand
+                generator._save_all(new_id, new_site, html, False)
+        base=str(request.base_url).rstrip("/")
+        return {"ok": True, "id": new_id, "url": f"{base}/canvas?id={new_id}"}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/api/canvas/{job_id}/zip")
 def canvas_zip(job_id: str, request: Request):
