@@ -473,14 +473,23 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
     site["_job"] = site_id  # для подстановки изображений (data URI) в секции
 
     body = [header(site)]
+    seen = {}
     for s in site.get("sections", []):
         t = s.get("type")
         if t == "contacts":
-            body.append(contacts(site, s, site_id))
+            part = contacts(site, s, site_id)
         elif t == "products":
-            body.append(products(site, s, cart_enabled=cart_on))
+            part = products(site, s, cart_enabled=cart_on)
         elif t in RENDERERS:
-            body.append(RENDERERS[t](site, s))
+            part = RENDERERS[t](site, s)
+        else:
+            continue
+        # дублирующиеся блоки получают уникальные якоря (#prices, #prices-2, …)
+        seen[t] = seen.get(t, 0) + 1
+        if seen[t] > 1:
+            part = re.sub(r'(<section[^>]*?)id="([a-z]+)"',
+                          rf'\1id="\2-{seen[t]}"', part, count=1)
+        body.append(part)
     body.append(footer(site))
     if cart_on:
         body.append(cart_markup(site, site_id))

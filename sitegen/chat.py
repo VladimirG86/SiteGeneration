@@ -4,10 +4,15 @@
 а возвращает список операций (ops), которые детерминированный код применяет
 к JSON-структуре. Это даёт:
   — структурные правки (добавить/удалить/переставить секции),
+  — дублирующиеся блоки (второй прайс, второй FAQ),
   — превращение лендинга в интернет-магазин (включение корзины + каталог),
   — безопасность: в рендер попадают только провалидированные поля,
   — дешевизну: правится секция, а не весь сайт (поэтому «400 правок/мес»
     у VERSTKA — реальная экономика).
+
+Адресация секций: у каждой секции стабильный `id` («prices», «prices-2»).
+Операции принимают `id` (точный блок) или `type` (первый блок этого типа).
+Старые сайты без `id` мигрируются автоматически при первой правке.
 """
 import copy
 import re
@@ -19,6 +24,12 @@ SECTION_TYPES = ("hero", "services", "advantages", "about", "process",
 
 ACCENTS = ("purple", "blue", "emerald", "orange", "rose", "teal")
 
+# Блоки-одиночки: второй такой же создать нельзя, upsert/add заменяет.
+SINGLETON_TYPES = ("hero", "contacts")
+
+# Защита от «наплоди 20 прайсов»: однотипных блоков не больше трёх.
+MAX_SAME_TYPE = 3
+
 SECTION_DOC = """- hero: {"type":"hero","title":"H1 до 70 симв","subtitle":"1-2 предложения","cta_primary":"Оставить заявку","cta_secondary":"Смотреть цены","badges":["короткие USP до 30 симв"],"stats":[{"value":"12 лет","label":"на рынке"}]}
 - services: {"type":"services","kicker":"Услуги","title":"...","items":[{"name":"услуга","desc":"1 предложение","price":"от 1500 ₽"}]} (3-8 items)
 - advantages: {"type":"advantages","kicker":"Почему мы","title":"...","items":[{"title":"2-4 слова","desc":"1 предложение"}]} (3-6)
@@ -28,7 +39,11 @@ SECTION_DOC = """- hero: {"type":"hero","title":"H1 до 70 симв","subtitle"
 - reviews: {"type":"reviews","kicker":"Отзывы","title":"...","items":[{"name":"Имя Р.","text":"живой отзыв","meta":"услуга, месяц год"}]} (3-6)
 - faq: {"type":"faq","kicker":"FAQ","title":"Частые вопросы","items":[{"q":"вопрос","a":"ответ"}]} (4-6)
 - contacts: {"type":"contacts","kicker":"Контакты","title":"...","text":"что будет после заявки","fields":["name","phone","comment"]}
-- products (каталог магазина): {"type":"products","kicker":"Каталог","title":"...","items":[{"name":"товар","price":"1 990 ₽ или от 990 ₽","desc":"1 предложение","badge":"Хит/Новинка/-20%/пусто","emoji":"один эмодзи"}]} (4-12)"""
+- products (каталог магазина): {"type":"products","kicker":"Каталог","title":"...","items":[{"name":"товар","price":"1 990 ₽ или от 990 ₽","desc":"1 предложение","badge":"Хит/Новинка/-20%/пусто","emoji":"один эмодзи"}]} (4-12)
+
+У каждой секции есть стабильный "id" ("prices", "prices-2"). В upsert_section
+передавай "id", чтобы заменить конкретный блок; без "id" заменится первый
+блок этого типа. Для ВТОРОГО блока того же типа используй add_section."""
 
 EDITOR_RULES = """Ты — ИИ-редактор сайтов платформы СБОРКА. Клиент описывает изменения словами,
 ты возвращаешь JSON со списком операций. Платформа применит их к структуре сайта.
@@ -40,12 +55,13 @@ EDITOR_RULES = """Ты — ИИ-редактор сайтов платформы
 1. {"op":"set_theme","mode":"light","accent":"purple"}  — mode: light|dark; accent: purple|blue|emerald|orange|rose|teal
 2. {"op":"set_info","brand":"...","tagline":"...","phone":"+7 (___) ___-__-__","email":"...","address":"..."}  — поля опциональны, меняй только нужные; city не менять
 3. {"op":"set_nav","nav":[{"label":"Каталог","href":"#catalog"},{"label":"Услуги","href":"#services"}]}  — 3-6 пунктов на реальные секции
-4. {"op":"upsert_section","section":{...}}  — добавить секцию или заменить существующую того же type (позиция сохранится; новая встанет перед контактами)
-5. {"op":"delete_section","type":"prices"}
-6. {"op":"move_section","type":"prices","after":"services"}  — after: тип секции или "top" (в начало)
-7. {"op":"set_feature","name":"cart","enabled":true}  — включить/выключить корзину интернет-магазина
-8. {"op":"gen_images","target":"hero"} — сгенерировать ИИ-фото на первый экран (~15 c)
-9. {"op":"gen_images","target":"products","count":6} — сгенерировать фото для первых 6 товаров каталога (~20-60 c)
+4. {"op":"upsert_section","section":{...}}  — ЗАМЕНИТЬ секцию (по "id", иначе первую такого type) или добавить перед контактами, если такого типа нет
+5. {"op":"add_section","section":{...},"after":"services"}  — ВСЕГДА вставить НОВЫЙ блок (для второго блока того же типа); after: id|type|"top", по умолчанию — перед контактами
+6. {"op":"delete_section","type":"prices"}  — или {"op":"delete_section","id":"prices-2"} для точного блока
+7. {"op":"move_section","type":"prices","after":"services"}  — after: id|type|"top" (в начало)
+8. {"op":"set_feature","name":"cart","enabled":true}  — включить/выключить корзину интернет-магазина
+9. {"op":"gen_images","target":"hero"} — сгенерировать ИИ-фото на первый экран (~15 c)
+10. {"op":"gen_images","target":"products","count":6} — сгенерировать фото для первых 6 товаров каталога (~20-60 c, максимум 8)
 
 ТИПЫ СЕКЦИЙ И ИХ ПОЛЯ:
 """ + SECTION_DOC + """
@@ -63,6 +79,8 @@ EDITOR_RULES = """Ты — ИИ-редактор сайтов платформы
 5. Пиши на русском. Обращение к посетителю сайта на «вы».
 6. Максимум 8 операций за ответ. Не трогай то, что клиента устраивает.
 7. Если запрос уже выполнен в сайте (такая секция есть) — обнови её через upsert, а не дублируй.
+   Второй блок того же типа создавай ТОЛЬКО через add_section и только по явной просьбе
+   («ещё один», «второй», «другой блок цен»). hero и contacts всегда в единственном числе.
 8. Если просьба непонятна — сделай разумное предположение и объясни его в reply.
 9. reply — от лица платформы («Готово: добавил каталог…»), без упоминания JSON и операций.
 """
@@ -80,12 +98,18 @@ def _clean_price(p):
     return p if re.search(r"\d|запрос|бесплатн|договор", p, re.I) else ""
 
 
+def _valid_id(v) -> bool:
+    return isinstance(v, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,23}", v) is not None
+
+
 def sanitize_section(s: dict) -> dict | None:
     """Валидация секции от модели: белый список типов и полей, ограничение длины."""
     if not isinstance(s, dict) or s.get("type") not in SECTION_TYPES:
         return None
     t = s["type"]
     out = {"type": t}
+    if _valid_id(s.get("id")):
+        out["id"] = s["id"]
     for k in ("kicker", "title", "note", "text"):
         if s.get(k):
             out[k] = _s(s[k], 140)
@@ -144,13 +168,70 @@ def sanitize_section(s: dict) -> dict | None:
     return out
 
 
+def ensure_ids(site: dict) -> dict:
+    """Проставляет стабильные id секциям. Существующие корректные id НЕ трогает
+    (важно: модель ссылается на них между правками), новым выдаёт свободные.
+    Безопасно вызывать на каждом шаге (миграция старых сайтов)."""
+    sections = [s for s in site.get("sections", []) or [] if isinstance(s, dict)]
+    # проход 1: фиксируем уже занятые id (первое вхождение побеждает при дубле)
+    used = set()
+    for s in sections:
+        cid = s.get("id")
+        if _valid_id(cid) and cid not in used:
+            used.add(cid)
+        else:
+            s.pop("id", None)  # дубли и мусор — переназначим ниже
+    # проход 2: выдаём id тем, у кого нет
+    counters = {}
+    for s in sections:
+        if s.get("id"):
+            continue
+        t = s.get("type") or "block"
+        counters[t] = counters.get(t, 0) + 1
+        cand = t if counters[t] == 1 else f"{t}-{counters[t]}"
+        while cand in used:
+            counters[t] += 1
+            cand = f"{t}-{counters[t]}"
+        s["id"] = cand
+        used.add(cand)
+    return site
+
+
+def _find(sections: list, ref) -> int | None:
+    """Индекс секции по id (точно) или по type (первая). None — не найдена."""
+    if not ref:
+        return None
+    for i, s in enumerate(sections):
+        if s.get("id") == ref:
+            return i
+    for i, s in enumerate(sections):
+        if s.get("type") == ref:
+            return i
+    return None
+
+
+def _insert_pos(sections: list, after) -> int:
+    if after == "top":
+        return 0
+    if after:
+        pos = _find(sections, after)
+        if pos is not None:
+            return pos + 1
+    for i, s in enumerate(sections):
+        if s.get("type") == "contacts":
+            return i
+    return len(sections)
+
+
 def apply_ops(site: dict, ops: list) -> tuple[int, list]:
     """Применяет операции к структуре. Возвращает (число применённых, список заметок)."""
     applied, notes = 0, []
+    ensure_ids(site)
     for op in ops[:8]:
         if not isinstance(op, dict):
             continue
         kind = op.get("op")
+        sections = site.setdefault("sections", [])
 
         if kind == "set_theme":
             theme = site.setdefault("theme", {})
@@ -181,50 +262,63 @@ def apply_ops(site: dict, ops: list) -> tuple[int, list]:
                 site.setdefault("features", {})["cart"] = bool(op.get("enabled", True))
                 applied += 1
 
-        elif kind == "upsert_section":
+        elif kind in ("upsert_section", "add_section"):
             sec = sanitize_section(op.get("section"))
             if not sec:
                 notes.append("пропущена некорректная секция")
                 continue
-            sections = site.setdefault("sections", [])
-            for i, old in enumerate(sections):
-                if old.get("type") == sec["type"]:
-                    sec["type"] = old["type"]
-                    sections[i] = sec
-                    break
-            else:
-                if sec["type"] == "contacts":
-                    sections.append(sec)
-                else:
-                    ins = len(sections)
-                    for i, old in enumerate(sections):
-                        if old.get("type") == "contacts":
-                            ins = i
-                            break
-                    sections.insert(ins, sec)
+            if kind == "upsert_section":
+                idx = _find(sections, sec["id"]) if sec.get("id") else None
+                if idx is None:
+                    idx = next((i for i, s in enumerate(sections)
+                                if s.get("type") == sec["type"]), None)
+                if idx is not None:
+                    sec["id"] = sections[idx].get("id")  # id остаётся за позицией
+                    sections[idx] = sec
+                    applied += 1
+                    continue
+            # вставка нового блока
+            if sec["type"] in SINGLETON_TYPES:
+                same = next((i for i, s in enumerate(sections)
+                             if s.get("type") == sec["type"]), None)
+                if same is not None:
+                    sec["id"] = sections[same].get("id")
+                    sections[same] = sec
+                    notes.append(f"«{sec['type']}» бывает только один — заменил существующий")
+                    applied += 1
+                    continue
+            same_count = sum(1 for s in sections if s.get("type") == sec["type"])
+            if same_count >= MAX_SAME_TYPE:
+                notes.append(f"блоков «{sec['type']}» уже {MAX_SAME_TYPE} — пропустил")
+                continue
+            after = op.get("after") if kind == "add_section" else None
+            sections.insert(_insert_pos(sections, after), sec)
+            ensure_ids(site)
             applied += 1
 
         elif kind == "delete_section":
-            sections = site.setdefault("sections", [])
-            before = len(sections)
-            site["sections"] = [s for s in sections if s.get("type") != op.get("type")]
-            if len(site["sections"]) < before:
-                applied += 1
+            ref = op.get("id") or op.get("type")
+            idx = _find(sections, ref)
+            if idx is None:
+                notes.append(f"секция {ref} не найдена")
+            elif len(sections) <= 1:
+                notes.append("нельзя удалить последнюю секцию")
             else:
-                notes.append(f"секция {op.get('type')} не найдена")
+                sections.pop(idx)
+                applied += 1
 
         elif kind == "move_section":
-            sections = site.setdefault("sections", [])
-            idx = next((i for i, s in enumerate(sections) if s.get("type") == op.get("type")), None)
+            ref = op.get("id") or op.get("type")
+            idx = _find(sections, ref)
             if idx is None:
-                notes.append(f"секция {op.get('type')} не найдена")
+                notes.append(f"секция {ref} не найдена")
                 continue
             sec = sections.pop(idx)
             after = op.get("after")
-            if after == "top" or after in ("", None):
+            if after in ("top", "", None):
                 sections.insert(0, sec)
             else:
-                pos = next((i for i, s in enumerate(sections) if s.get("type") == after), None)
+                pos = _find(sections, after)
                 sections.insert((pos + 1) if pos is not None else len(sections), sec)
             applied += 1
 
@@ -234,6 +328,7 @@ def apply_ops(site: dict, ops: list) -> tuple[int, list]:
 def build_editor_messages(site: dict, history: list, user_msg: str):
     site_view = copy.deepcopy(site)
     site_view.setdefault("features", {})
+    ensure_ids(site_view)  # модель всегда видит актуальные id
     site_json = json_dumps_compact(site_view)
     messages = [{"role": "system", "content": EDITOR_RULES}]
     for m in history[-8:]:
@@ -289,4 +384,4 @@ def normalize_site(site: dict) -> dict:
     if not clean_secs:
         raise ValueError("после нормализации не осталось секций")
     out["sections"] = clean_secs
-    return out
+    return ensure_ids(out)

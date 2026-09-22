@@ -170,8 +170,11 @@ def generate_hero(site: dict, job_id: str) -> bool:
     return True
 
 
-def generate_products(site: dict, job_id: str, count: int = 6) -> int:
-    """Фото для первых count товаров каталога (параллельно). Возвращает сколько."""
+def generate_products(site: dict, job_id: str, count: int = 6, on_progress=None) -> int:
+    """Фото для первых count товаров каталога (параллельно). Возвращает сколько.
+
+    on_progress(done, total) вызывается после каждого товара — для прогресса в чате.
+    """
     if not is_configured():
         return 0
     items = None
@@ -181,22 +184,37 @@ def generate_products(site: dict, job_id: str, count: int = 6) -> int:
             break
     if not items:
         return 0
-    targets = [it for it in items if not it.get("image")][:max(0, min(count, 8))]
-    done, lock = [0], threading.Lock()
+    # исходные индексы важны: рендер ищет файл prod_{i}.webp по позиции в каталоге
+    targets = [(i, it) for i, it in enumerate(items) if not it.get("image")][:max(0, min(count, 8))]
+    done, finished, lock = [0], [0], threading.Lock()
+
+    def report():
+        if on_progress:
+            with lock:
+                d, t = finished[0], len(targets)
+            try:
+                on_progress(d, t)
+            except Exception:  # noqa: BLE001 — прогресс не должен ломать генерацию
+                pass
 
     def work(idx_item):
         idx, it = idx_item
-        res = generate(product_prompt(it, site), model=IMAGE_MODEL_FAST,
-                       aspect="1:1", max_side=640)
-        if res:
-            img, cost = res
-            _save_asset(job_id, f"prod_{idx}.webp", img)
-            it["image"] = True
+        try:
+            res = generate(product_prompt(it, site), model=IMAGE_MODEL_FAST,
+                           aspect="1:1", max_side=640)
+            if res:
+                img, cost = res
+                _save_asset(job_id, f"prod_{idx}.webp", img)
+                it["image"] = True
+                with lock:
+                    done[0] += 1
+                    print(f"[IMG] prod {idx} for {job_id}: {len(img)//1024} КБ, {cost} ₽")
+        finally:
             with lock:
-                done[0] += 1
-                print(f"[IMG] prod {idx} for {job_id}: {len(img)//1024} КБ, {cost} ₽")
+                finished[0] += 1
+            report()
 
-    threads = [threading.Thread(target=work, args=(t,)) for t in enumerate(targets)]
+    threads = [threading.Thread(target=work, args=(t,)) for t in targets]
     for t in threads:
         t.start()
     for t in threads:

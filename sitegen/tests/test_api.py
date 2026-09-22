@@ -1,0 +1,126 @@
+"""API end-to-end на TestClient. Сеть не используется: LLM/картинки либо
+выключены (демо-путь), либо замоканы. Сайты пишутся во временную папку."""
+import json
+import time
+
+import pytest
+from fastapi.testclient import TestClient
+
+import app as appmod
+import chat as chat_ops
+import demo_content
+import generator
+import images
+import llm
+import sections
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(generator, "SITES_DIR", str(tmp_path))
+    monkeypatch.setattr(appmod, "_RATE", {})
+    monkeypatch.setattr(llm, "API_KEY", "")     # демо-режим, без сети
+    monkeypatch.setattr(images, "API_KEY", "")
+    return TestClient(appmod.app)
+
+
+def _poll_done(client, job_id, timeout=60):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = client.get(f"/api/job/{job_id}")
+        assert r.status_code == 200
+        if r.json()["status"] == "done":
+            return r.json()
+        assert r.json()["status"] == "running"
+        time.sleep(0.5)
+    raise TimeoutError("job не завершился")
+
+
+def test_config_shape(client):
+    r = client.get("/api/config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["llm"] is False and len(body["accents"]) == 6
+
+
+def test_analyze_fallback_chips(client):
+    r = client.post("/api/analyze", json={"name": "ШИНОМОНТАЖ24", "about": "Шиномонтаж в Казани"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["niche"] == "auto"
+    assert len(body["chips"]["products"]) == 9
+
+
+def test_generate_poll_site_files(client, tmp_path):
+    r = client.post("/api/generate", json={
+        "name": "Brewhaus", "about": "Кофейня в Екатеринбурге, своя обжарка с 2019 года.",
+        "products": "Латте - 280", "advantages": "Готовим при вас",
+        "extras": "", "theme_mode": "light", "accent": "orange",
+        "email": "t@t.ru"})
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+    job = _poll_done(client, job_id)
+    assert job["site_url"] == f"/api/site/{job_id}"
+    html = client.get(f"/api/site/{job_id}")
+    assert html.status_code == 200 and len(html.text) > 15000
+    assert (tmp_path / f"{job_id}.json").exists()
+    assert (tmp_path / f"{job_id}.html").exists()
+    assert (tmp_path / f"{job_id}.history.json").exists()
+
+
+def test_lead_and_leads(client):
+    assert client.post("/api/lead/s1", json={"name": "А", "type": "form"}).json() == {"ok": True}
+    assert client.post("/api/lead/s1", json={"name": "Б", "type": "cart",
+                                             "items": [{"name": "x", "qty": 1}]}).json() == {"ok": True}
+    leads = client.get("/api/leads/s1").json()
+    assert [l["type"] for l in leads] == ["form", "cart"]
+
+
+def test_leads_admin_token(client, monkeypatch):
+    client.post("/api/lead/s2", json={"name": "А"})
+    monkeypatch.setattr(appmod, "ADMIN_TOKEN", "secret")
+    assert client.get("/api/leads/s2").status_code == 401
+    assert client.get("/api/leads/s2?token=secret").status_code == 200
+    assert client.get("/api/leads/s2", headers={"x-admin-token": "secret"}).status_code == 200
+
+
+def test_undo_first_version_error(client, tmp_path):
+    site = chat_ops.normalize_site(demo_content.build_site(
+        {"Название": "T", "О бизнесе": "Кафе в Казани.", "Услуги/товары": "Кофе - 100",
+         "Преимущества": "Вкусно", "Дополнительно": ""}, "light", "blue"))
+    site["theme"] = {"mode": "light", "accent": "blue"}
+    generator._save_all("v1", site, sections.render_page(dict(site), site_id="v1"), True)
+    assert client.post("/api/undo/v1").status_code == 400
+
+
+def test_chat_mocked_then_undo(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(llm, "API_KEY", "test-key")  # редактор «включён»
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: json.dumps({
+        "reply": "Тему сменил.",
+        "ops": [{"op": "set_theme", "mode": "dark", "accent": "rose"}]}))
+    site = chat_ops.normalize_site(demo_content.build_site(
+        {"Название": "T", "О бизнесе": "Кафе в Казани.", "Услуги/товары": "Кофе - 100",
+         "Преимущества": "Вкусно", "Дополнительно": ""}, "light", "blue"))
+    site["theme"] = {"mode": "light", "accent": "blue"}
+    generator._save_all("ed1", site, sections.render_page(dict(site), site_id="ed1"), True)
+
+    r = client.post("/api/chat/ed1", json={"message": "сделай тёмную тему"})
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] == 1 and r.json()["version"] == 2
+    assert client.get("/api/chat/progress/ed1").json() == {}
+    # история чата — на диске (переживёт рестарт)
+    assert (tmp_path / "ed1.chat.json").exists()
+
+    u = client.post("/api/undo/ed1")
+    assert u.json()["version"] == 1
+    back = json.loads((tmp_path / "ed1.json").read_text(encoding="utf-8"))
+    assert back["theme"] == {"mode": "light", "accent": "blue"}
+
+
+def test_ratelimit_429(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_RATE", {})
+    monkeypatch.setitem(appmod.RATE_LIMITS, "analyze", (2, 3600))
+    body = {"name": "T", "about": "Кафе в Казани, завтраки."}
+    assert client.post("/api/analyze", json=body).status_code == 200
+    assert client.post("/api/analyze", json=body).status_code == 200
+    assert client.post("/api/analyze", json=body).status_code == 429

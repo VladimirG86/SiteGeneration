@@ -739,12 +739,29 @@ async function sendChat() {
   inp.value = '';
   inp.style.height = 'auto';
   const wait = edTyping();
+  // Пока ждём синхронный /api/chat — показываем живой прогресс: сервер пишет
+  // его в память (этап LLM → генерация картинок), фронт опрашивает отдельно.
+  const t0 = Date.now();
+  const timer = setInterval(async () => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    let label = s > 4 ? `Думаю… ${s} с` : '';
+    try {
+      const pr = await (await fetch('/api/chat/progress/' + state.editorJob)).json();
+      if (pr && pr.stage === 'images' && pr.total) {
+        label = pr.target === 'hero'
+          ? `Рисую фото для первого экрана… ${s} с`
+          : `Рисую фото товаров ${pr.done || 0}/${pr.total}… ${s} с`;
+      }
+    } catch (e) { /* прогресс недоступен — показываем только таймер */ }
+    if (label) wait.innerHTML = '<span style="font-size:13px;color:var(--muted)">' + label + '</span>';
+  }, 1000);
   try {
     const r = await fetch('/api/chat/' + state.editorJob, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg }),
     });
     const d = await r.json();
+    clearInterval(timer);
     wait.remove();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     let text = d.reply || 'Готово.';
@@ -754,6 +771,7 @@ async function sendChat() {
     if (d.version) { state.editorVersion = d.version; updateEdTitle(); }
     if (d.applied) refreshEditor();
   } catch (e) {
+    clearInterval(timer);
     wait.remove();
     edMsg('ai', 'Не получилось применить правку: ' + e.message + '\nПопробуйте переформулировать запрос.');
   }

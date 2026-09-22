@@ -5,11 +5,16 @@
 
 Ключ RouterAI читается из .env (или переменных окружения) — см. llm.py.
 Без ключа работает демо-режим (demo_content.py).
+
+Защита (базовая, для прототипа):
+  — rate-limit по IP на генерацию/чат/анализ/заявки (память процесса);
+  — /api/leads закрывается токеном, если задан SITEGEN_ADMIN_TOKEN.
 """
 import os
 import threading
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -20,8 +25,44 @@ import llm
 import niches
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ADMIN_TOKEN = os.environ.get("SITEGEN_ADMIN_TOKEN", "").strip()
 
 app = FastAPI(title="SiteGen prototype")
+
+# ------------------------------------------------------- rate limiting ----
+
+# bucket -> (запросов, за секунд). Хранилище в памяти — для прототипа
+# достаточно; в проде заменить на Redis (см. README).
+RATE_LIMITS = {
+    "generate": (10, 3600),   # генерация сайта — дорогая, 10/час с IP
+    "chat": (60, 3600),       # ИИ-правки — 60/час
+    "analyze": (120, 3600),   # чипы-подсказки
+    "lead": (120, 3600),      # заявки с сайтов
+}
+_RATE = {}
+_RATE_LOCK = threading.Lock()
+
+
+def _limited(request: Request | None, bucket: str) -> bool:
+    limit, window = RATE_LIMITS[bucket]
+    ip = request.client.host if request and request.client else "?"
+    now = time.time()
+    key = (ip, bucket)
+    with _RATE_LOCK:
+        ts = [t for t in _RATE.get(key, []) if now - t < window]
+        if len(ts) >= limit:
+            _RATE[key] = ts
+            return True
+        ts.append(now)
+        _RATE[key] = ts
+        return False
+
+
+def _too_many(bucket: str):
+    return JSONResponse(
+        {"error": f"Слишком много запросов ({bucket}). Подождите и попробуйте снова."},
+        status_code=429)
+
 
 # ------------------------------------------------------------------ схемы ---
 
@@ -69,8 +110,10 @@ def config():
 
 
 @app.post("/api/analyze")
-def analyze(body: AnalyzeIn):
+def analyze(body: AnalyzeIn, request: Request):
     """После шага «О бизнесе»: определяем нишу и отдаём подсказки-чипы."""
+    if _limited(request, "analyze"):
+        return _too_many("analyze")
     niche = niches.detect_niche(f"{body.name} {body.about}")
     chips = niches.chips_for(niche)
     if llm.is_configured():
@@ -92,7 +135,9 @@ def analyze(body: AnalyzeIn):
 
 
 @app.post("/api/generate")
-def generate(body: GenerateIn):
+def generate(body: GenerateIn, request: Request):
+    if _limited(request, "generate"):
+        return _too_many("generate")
     if body.theme_mode not in design.MODES:
         body.theme_mode = "light"
     if body.accent not in design.ACCENTS:
@@ -127,7 +172,9 @@ def site_page(job_id: str):
 # -------------------------------------------------------------- редактор ----
 
 @app.post("/api/chat/{job_id}")
-def chat_edit(job_id: str, body: ChatIn):
+def chat_edit(job_id: str, body: ChatIn, request: Request):
+    if _limited(request, "chat"):
+        return _too_many("chat")
     if not llm.is_configured():
         return JSONResponse({"error": "Редактору нужен ключ RouterAI (.env)"}, status_code=503)
     try:
@@ -137,6 +184,13 @@ def chat_edit(job_id: str, body: ChatIn):
     if "error" in result:
         return JSONResponse(result, status_code=404)
     return result
+
+
+@app.get("/api/chat/progress/{job_id}")
+def chat_progress(job_id: str):
+    """Прогресс долгой правки (генерация картинок). Фронт опрашивает,
+    пока ждёт ответ /api/chat. Пустой объект — показывать нечего."""
+    return generator.get_progress(job_id)
 
 
 @app.post("/api/undo/{job_id}")
@@ -154,7 +208,9 @@ _LEAD_LOCK = threading.Lock()
 
 
 @app.post("/api/lead/{site_id}")
-def lead(site_id: str, body: LeadIn):
+def lead(site_id: str, body: LeadIn, request: Request):
+    if _limited(request, "lead"):
+        return _too_many("lead")
     with _LEAD_LOCK:
         _LEADS.setdefault(site_id, []).append(body.model_dump())
     tag = "CART" if body.type == "cart" else "LEAD"
@@ -163,7 +219,11 @@ def lead(site_id: str, body: LeadIn):
 
 
 @app.get("/api/leads/{site_id}")
-def leads(site_id: str):
+def leads(site_id: str, request: Request):
+    if ADMIN_TOKEN:
+        got = request.query_params.get("token") or request.headers.get("x-admin-token")
+        if got != ADMIN_TOKEN:
+            return JSONResponse({"error": "Нужен admin-токен"}, status_code=401)
     with _LEAD_LOCK:
         return _LEADS.get(site_id, [])
 
@@ -176,3 +236,8 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 @app.get("/", response_class=FileResponse)
 def index():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+
+
+if not ADMIN_TOKEN:
+    print("[WARN] SITEGEN_ADMIN_TOKEN не задан — /api/leads открыт всем. "
+          "Для публичного стенда задайте токен в .env")

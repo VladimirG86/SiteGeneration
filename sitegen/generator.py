@@ -2,6 +2,7 @@
 
 Генерация — 5 этапов (как у VERSTKA). Редактор — чат → ops-JSON (chat.py) →
 перерендер. Каждая правка создаёт новую версию (undo до 12 шагов).
+История чата персистентна ({id}.chat.json) — переживает рестарт сервера.
 """
 import json
 import os
@@ -13,6 +14,7 @@ import chat as chat_ops
 import demo_content
 import design
 import llm
+import niches
 import prompts
 import sections
 
@@ -40,6 +42,7 @@ def _paths(job_id):
         "site": os.path.join(SITES_DIR, f"{job_id}.json"),
         "html": os.path.join(SITES_DIR, f"{job_id}.html"),
         "hist": os.path.join(SITES_DIR, f"{job_id}.history.json"),
+        "chat": os.path.join(SITES_DIR, f"{job_id}.chat.json"),
     }
 
 
@@ -56,6 +59,18 @@ def _load_history(job_id):
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             return json.load(f)
+    return []
+
+
+def _load_chat_file(job_id):
+    p = _paths(job_id)["chat"]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (OSError, ValueError):
+            return []
     return []
 
 
@@ -108,11 +123,31 @@ def get_job(job_id: str):
         }
 
 
+def get_progress(job_id: str) -> dict:
+    """Прогресс долгой чат-правки (этап картинок). Пусто — нечего показывать."""
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job:
+            return dict(job.get("progress") or {})
+    return {}
+
+
+def _set_progress(job_id: str, data: dict | None):
+    with _LOCK:
+        job = _JOBS.get(job_id)
+        if job is not None:
+            if data:
+                job["progress"] = data
+            else:
+                job.pop("progress", None)
+
+
 # ------------------------------------------------------------ генерация ----
 
 def _llm_site(answers: dict, theme_mode: str, accent: str) -> dict:
     acc = design.ACCENTS[accent]
-    messages = prompts.build_site_messages(answers, theme_mode, acc["label"], acc["main"])
+    niche = niches.detect_niche(" ".join(str(v) for v in answers.values()))
+    messages = prompts.build_site_messages(answers, theme_mode, acc["label"], acc["main"], niche)
     raw = llm.chat(messages, temperature=0.6, max_tokens=16000, timeout=240)
     site = llm.extract_json(raw)
     # Нормализация обязательна: сырой JSON от модели может содержать лишние
@@ -164,6 +199,7 @@ def run_job(job_id: str):
         _set_stage(job, 3)
         site["theme"] = {"mode": theme_mode, "accent": accent}
         site["features"] = site.get("features") or {"cart": False}
+        chat_ops.ensure_ids(site)
         html = sections.render_page(site, site_id=job_id)
         finish_stage(1.0)
 
@@ -211,9 +247,10 @@ def start_job(answers: dict, theme_mode: str, accent: str) -> str:
 def get_chat_history(job_id: str) -> list:
     with _LOCK:
         job = _JOBS.get(job_id)
-        if job:
-            return list(job.get("chat", []))
-    return []
+        if job and job.get("chat"):
+            return list(job["chat"])
+    # в памяти пусто (рестарт сервера) — читаем с диска
+    return _load_chat_file(job_id)
 
 
 def edit_site(job_id: str, user_msg: str) -> dict:
@@ -223,64 +260,92 @@ def edit_site(job_id: str, user_msg: str) -> dict:
     site = _load_site(job_id)
     if site is None:
         return {"error": "Сайт не найден"}
+    chat_ops.ensure_ids(site)  # миграция сайтов, созданных до введения id
     history = get_chat_history(job_id)
 
-    raw = llm.chat(
-        chat_ops.build_editor_messages(site, history, user_msg),
-        temperature=0.35, max_tokens=12000, timeout=240,
-    )
-    data = llm.extract_json(raw)
-    reply = str(data.get("reply") or "").strip()[:600] or "Готово."
-    ops = data.get("ops") if isinstance(data.get("ops"), list) else []
-    if not ops:
-        # правок нет — это просто ответ на вопрос; в историю, без версии
-        _remember(job_id, user_msg, reply)
-        return {"reply": reply, "applied": 0, "version": get_version(job_id), "ops": 0}
+    _set_progress(job_id, {"stage": "llm", "done": 0, "total": 1})
+    try:
+        raw = llm.chat(
+            chat_ops.build_editor_messages(site, history, user_msg),
+            temperature=0.35, max_tokens=12000, timeout=240,
+        )
+        data = llm.extract_json(raw)
+        reply = str(data.get("reply") or "").strip()[:600] or "Готово."
+        ops = data.get("ops") if isinstance(data.get("ops"), list) else []
+        if not ops:
+            # правок нет — это просто ответ на вопрос; в историю, без версии
+            _remember(job_id, user_msg, reply)
+            return {"reply": reply, "applied": 0, "version": get_version(job_id), "ops": 0}
 
-    # изображения генерируются отдельно (долго), остальное — через apply_ops
-    struct_ops = [op for op in ops
-                  if not (isinstance(op, dict) and op.get("op") == "gen_images")]
-    gen_ops = [op for op in ops
-               if isinstance(op, dict) and op.get("op") == "gen_images"]
+        # изображения генерируются отдельно (долго), остальное — через apply_ops
+        struct_ops = [op for op in ops
+                      if not (isinstance(op, dict) and op.get("op") == "gen_images")]
+        gen_ops = [op for op in ops
+                   if isinstance(op, dict) and op.get("op") == "gen_images"]
 
-    applied, notes = chat_ops.apply_ops(site, struct_ops)
-    if gen_ops:
-        import images as images_mod
-        for g in gen_ops[:2]:
-            target = g.get("target")
-            count = g.get("count")
-            count = int(count) if str(count or "").isdigit() else 6
-            if target == "products":
-                n = images_mod.generate_products(site, job_id, count)
-                if n:
-                    applied += 1
-                else:
-                    notes.append("фото товаров сгенерировать не удалось")
-            elif target == "hero":
-                if not images_mod.generate_hero(site, job_id):
-                    notes.append("фото на первый экран сгенерировать не удалось")
-                else:
-                    applied += 1
+        applied, notes = chat_ops.apply_ops(site, struct_ops)
+        if gen_ops:
+            import images as images_mod
+            for g in gen_ops[:2]:
+                target = g.get("target")
+                count = g.get("count")
+                count = int(count) if str(count or "").isdigit() else 6
+                count = max(1, min(count, 8))
+                if target == "products":
+                    _set_progress(job_id, {"stage": "images", "target": "products",
+                                           "done": 0, "total": count})
 
-    html = sections.render_page(site, site_id=job_id)
-    _save_all(job_id, site, html, push_version=True)
-    with _LOCK:
-        job = _JOBS.get(job_id)
-        if job:
-            job["html"] = html
-    _remember(job_id, user_msg,
-              reply + (f" ({', '.join(notes)})" if notes else ""))
-    return {"reply": reply, "applied": applied, "notes": notes,
-            "version": get_version(job_id), "ops": len(ops)}
+                    def _cb(d, t, _job=job_id):
+                        _set_progress(_job, {"stage": "images", "target": "products",
+                                             "done": d, "total": t})
+
+                    n = images_mod.generate_products(site, job_id, count, on_progress=_cb)
+                    if n:
+                        applied += 1
+                    else:
+                        notes.append("фото товаров сгенерировать не удалось")
+                elif target == "hero":
+                    _set_progress(job_id, {"stage": "images", "target": "hero",
+                                           "done": 0, "total": 1})
+                    ok = images_mod.generate_hero(site, job_id)
+                    _set_progress(job_id, {"stage": "images", "target": "hero",
+                                           "done": 1 if ok else 0, "total": 1})
+                    if not ok:
+                        notes.append("фото на первый экран сгенерировать не удалось")
+                    else:
+                        applied += 1
+
+        html = sections.render_page(site, site_id=job_id)
+        _save_all(job_id, site, html, push_version=True)
+        with _LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job["html"] = html
+        _remember(job_id, user_msg,
+                  reply + (f" ({', '.join(notes)})" if notes else ""))
+        return {"reply": reply, "applied": applied, "notes": notes,
+                "version": get_version(job_id), "ops": len(ops)}
+    finally:
+        _set_progress(job_id, None)
 
 
 def _remember(job_id: str, user_msg: str, assistant_msg: str):
+    pair = [{"role": "user", "content": user_msg},
+            {"role": "assistant", "content": assistant_msg}]
     with _LOCK:
         job = _JOBS.get(job_id)
         if job is not None:
-            job.setdefault("chat", []).append({"role": "user", "content": user_msg})
-            job["chat"].append({"role": "assistant", "content": assistant_msg})
+            job.setdefault("chat", []).extend(pair)
             job["chat"] = job["chat"][-10:]
+    # персистентность: история переживает рестарт сервера
+    try:
+        hist = _load_chat_file(job_id)
+        hist.extend(pair)
+        hist = hist[-10:]
+        with open(_paths(job_id)["chat"], "w", encoding="utf-8") as f:
+            json.dump(hist, f, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 def undo(job_id: str) -> dict:
@@ -289,6 +354,7 @@ def undo(job_id: str) -> dict:
         return {"error": "Отменять нечего — это первая версия"}
     hist.pop()  # текущая версия
     site = hist[-1]
+    chat_ops.ensure_ids(site)
     html = sections.render_page(site, site_id=job_id)
     _save_all(job_id, site, html, push_version=False)
     with open(_paths(job_id)["hist"], "w", encoding="utf-8") as f:
