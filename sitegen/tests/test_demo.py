@@ -46,3 +46,22 @@ def test_duplicate_blocks_get_unique_anchors():
     # все id в документе уникальны
     ids = re.findall(r'id="([^"]+)"', html)
     assert len(ids) == len(set(ids)), ids
+
+def test_hero_benefit_and_stats_from_advantages():
+    # advantage with numbers should flow into hero title and stats
+    site=demo_content.build_site({"Название":"Кофейня Утро","О бизнесе":"Кофейня в центре Москвы, своя обжарка с 2019","Услуги/товары":"Капучино - 200","Преимущества":"Гарантия 12 месяцев\nОтвечаем за 15 минут\n500 клиентов","Дополнительно":""}, "light","orange")
+    hero=[s for s in site["sections"] if s["type"]=="hero"][0]
+    # title should contain benefit fragment
+    assert "гарантия 12" in hero["title"].lower()
+    # stats should be concrete from advantages, not generic
+    stats=hero.get("stats",[])
+    assert len(stats)==3
+    assert any("12" in s["value"] for s in stats)
+    assert any("15" in s["value"] for s in stats)
+
+def test_hero_fallback_without_advantages():
+    site=demo_content.build_site({"Название":"Кофейня Утро","О бизнесе":"Кофейня","Услуги/товары":"Капучино - 200","Преимущества":"","Дополнительно":""}, "light","orange")
+    hero=[s for s in site["sections"] if s["type"]=="hero"][0]
+    assert hero["title"] and len(hero["title"])<=70
+    assert len(hero.get("stats",[]))==3
+
