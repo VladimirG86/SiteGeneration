@@ -707,6 +707,11 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
         og_desc_v = esc(subtitle)[:160]
         canonical_v = f"/api/site/{esc(site_id)}"
         json_ld_v = """<script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"%s","telephone":"%s","email":"%s","url":"%s"}</script>""" % (esc(site.get("brand") or ""), esc(site.get("phone") or ""), esc(site.get("email") or ""), canonical_v)
+        try:
+            from design import ACCENTS as _ACC2
+            theme_color_v = _ACC2.get(accent, _ACC2["purple"])["main"]
+        except Exception:
+            theme_color_v = "#5B5FEF"
         page = f"""<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -717,6 +722,7 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
 <meta property="og:type" content="profile">
 <meta property="og:url" content="{canonical_v}">
 <meta name="twitter:card" content="summary">
+<meta name="theme-color" content="{theme_color_v}">
 <link rel="canonical" href="{canonical_v}">
 {FONTS_LINK}
 <style>{css}</style>
@@ -779,11 +785,16 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
 })();
 </script>"""
     cart_js = CART_JS.replace("API_LEAD_URL", f"/api/lead/{esc(site_id)}") if cart_on else ""
-    # SEO head: OG / Twitter / canonical stub + JSON-LD
+    # SEO head: OG / Twitter / canonical stub + JSON-LD + theme-color
     og_title = esc(title_tag)
     og_desc = esc(subtitle)[:160]
     canonical = f"/api/site/{esc(site_id)}"
     json_ld = """<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"%s","telephone":"%s","email":"%s","address":"%s","url":"%s"}</script>""" % (esc(site.get("brand") or ""), esc(site.get("phone") or ""), esc(site.get("email") or ""), esc(site.get("address") or ""), canonical)
+    try:
+        from design import ACCENTS as _ACC
+        theme_color = _ACC.get(accent, _ACC["purple"])["main"]
+    except Exception:
+        theme_color = "#5B5FEF"
     page = f"""<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -794,6 +805,7 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
 <meta property="og:type" content="website">
 <meta property="og:url" content="{canonical}">
 <meta name="twitter:card" content="summary">
+<meta name="theme-color" content="{theme_color}">
 <link rel="canonical" href="{canonical}">
 {FONTS_LINK}
 <style>{css}</style>
