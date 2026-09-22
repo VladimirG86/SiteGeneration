@@ -177,6 +177,8 @@ function bindButtons() {
   $('#publish-ok').addEventListener('click', closePublishModal);
   $('#publish-modal').addEventListener('click', (e) => { if (e.target === $('#publish-modal')) closePublishModal(); });
   $('#btn-wp-send').addEventListener('click', sendToWp);
+  const s3b = $('#btn-s3-send'); if (s3b) s3b.addEventListener('click', sendToS3);
+  const stb = $('#btn-static-send'); if (stb) stb.addEventListener('click', sendToStatic);
   const expZip = $('#btn-export-zip');
   if (expZip) expZip.addEventListener('click', () => {
     // href уже выставлен, просто закроем через секунду
@@ -739,6 +741,13 @@ function openPublishModal() {
   $('#btn-export-zip').href = '/api/export/' + state.editorJob;
   $('#btn-export-zip').setAttribute('download', 'site-' + state.editorJob + '.zip');
   $('#wp-result').classList.add('hidden');
+  const s3r = $('#s3-result'); if (s3r) s3r.classList.add('hidden');
+  const str = $('#static-result'); if (str) str.classList.add('hidden');
+  // seo/vcard links
+  const base = '/api/site/' + state.editorJob;
+  const sm = $('#link-sitemap'); if (sm) sm.href = base + '/sitemap.xml';
+  const rb = $('#link-robots'); if (rb) rb.href = base + '/robots.txt';
+  const vc = $('#link-vcard'); if (vc) vc.href = base + '/vcard';
   $('#publish-modal').classList.remove('hidden');
 }
 function closePublishModal() { $('#publish-modal').classList.add('hidden'); }
@@ -776,6 +785,40 @@ async function sendToWp() {
     btn.disabled = false;
     btn.textContent = old;
   }
+}
+
+async function sendToS3() {
+  const out = $('#s3-result');
+  if (!state.editorJob) { out.textContent = 'Сначала создайте сайт'; out.classList.remove('hidden'); return; }
+  const btn = $('#btn-s3-send');
+  btn.disabled = true; const old = btn.textContent; btn.textContent = 'Публикуем…';
+  out.classList.add('hidden');
+  try {
+    const r = await fetch('/api/publish/s3/' + state.editorJob, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    out.textContent = 'Готово! S3: ' + (d.url || 'загружено') + (d.bucket ? ' (' + d.bucket + ')' : '');
+    out.style.background = '#e9f8ef'; out.style.borderColor = '#bfe8cf'; out.classList.remove('hidden');
+  } catch (e) {
+    out.textContent = e.message;
+    out.style.background = ''; out.style.borderColor = ''; out.classList.remove('hidden');
+  } finally { btn.disabled = false; btn.textContent = old; }
+}
+async function sendToStatic() {
+  const out = $('#static-result');
+  if (!state.editorJob) { out.textContent = 'Сначала создайте сайт'; out.classList.remove('hidden'); return; }
+  const btn = $('#btn-static-send');
+  btn.disabled = true; const old = btn.textContent; btn.textContent = 'Публикуем…';
+  out.classList.add('hidden');
+  try {
+    const r = await fetch('/api/publish/static/' + state.editorJob, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    out.textContent = 'Готово! Ссылка: ' + (d.url || ('/api/site/' + state.editorJob));
+    out.style.background = '#e9f8ef'; out.style.borderColor = '#bfe8cf'; out.classList.remove('hidden');
+  } catch (e) {
+    out.textContent = e.message; out.classList.remove('hidden');
+  } finally { btn.disabled = false; btn.textContent = old; }
 }
 
 /* ----------------------------------------------------------- generate ---- */

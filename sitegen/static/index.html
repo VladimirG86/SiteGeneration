@@ -284,6 +284,25 @@
         <button id="btn-wp-send" class="btn-grad wide">Отправить в WP</button>
         <p id="wp-result" class="warning hidden" style="margin-top:10px"></p>
       </div>
+      <div style="border:1px solid var(--border);border-radius:14px;padding:16px">
+        <b style="font-size:14px">Опубликовать на S3 / статике</b>
+        <p class="hint" style="margin:6px 0 12px">S3 — если задан <code>SITEGEN_S3_BUCKET</code> (Yandex/Selectel/AWS/MinIO). «На нашем хостинге» просто закрепляет ссылку <code>/api/site/{id}</code>.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btn-s3-send" class="btn-grad" style="flex:1">На S3</button>
+          <button id="btn-static-send" class="btn-ghost" style="flex:1">На СБОРКА</button>
+        </div>
+        <p id="s3-result" class="warning hidden" style="margin-top:10px"></p>
+        <p id="static-result" class="warning hidden" style="margin-top:6px"></p>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:14px;padding:16px;background:var(--field)">
+        <b style="font-size:14px">SEO и визитка</b>
+        <p class="hint" style="margin:6px 0 8px">Для каждого сайта генерируется <code>sitemap.xml</code> и <code>robots.txt</code>. Для <code>vcard</code> — скачиваемый <code>.vcf</code>.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:13px">
+          <a id="link-sitemap" href="#" target="_blank" class="btn-ghost" style="padding:8px 10px">sitemap.xml</a>
+          <a id="link-robots" href="#" target="_blank" class="btn-ghost" style="padding:8px 10px">robots.txt</a>
+          <a id="link-vcard" href="#" target="_blank" class="btn-ghost" style="padding:8px 10px">скачать .vcf</a>
+        </div>
+      </div>
     </div>
     <button id="publish-ok" class="btn-ghost wide" style="margin-top:14px">Закрыть</button>
   </div>

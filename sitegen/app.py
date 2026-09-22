@@ -157,6 +157,16 @@ class WpPublishIn(BaseModel):
 @app.get("/api/config")
 def config():
     import images
+    try:
+        try:
+            import storage as st  # type: ignore
+        except ImportError:
+            import sitegen.storage as st  # type: ignore
+        s3_on = bool(getattr(st, "S3_BUCKET", "") and st.is_s3())
+        s3_bucket = getattr(st, "S3_BUCKET", "") if s3_on else ""
+    except Exception:
+        s3_on = False
+        s3_bucket = ""
     return {
         "llm": llm.is_configured(),
         "model": llm.MODEL if llm.is_configured() else None,
@@ -166,6 +176,8 @@ def config():
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
         "kinds": ["landing", "taplink", "vcard"],
+        "s3": s3_on,
+        "s3_bucket": s3_bucket,
     }
 
 
@@ -385,6 +397,176 @@ def publish_wp(job_id: str, body: WpPublishIn, request: Request):
         return JSONResponse({"error": f"WordPress вернул HTTP {code}: {detail}"}, status_code=502)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": f"Не удалось связаться с WordPress: {e}"}, status_code=502)
+
+
+@app.get("/api/site/{job_id}/sitemap.xml")
+def site_sitemap(job_id: str, request: Request):
+    if not _valid_job_id(job_id):
+        return HTMLResponse("not found", status_code=404)
+    site = generator.get_site_dict(job_id)
+    if not site:
+        return HTMLResponse("not found", status_code=404)
+    base = str(request.base_url).rstrip("/")
+    # prefer public Pages url if available, else base
+    loc = f"{base}/api/site/{job_id}"
+    # for SEO: include section anchors for landing (Google ignores fragments but useful for hint)
+    urls = [loc]
+    # add anchors for landing sections (optional, sitemap spec allows but fragments usually ignored)
+    # keep single entry for simplicity
+    lastmod = time.strftime("%Y-%m-%d")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+</urlset>"""
+    from fastapi.responses import Response
+    return Response(content=xml.encode(), media_type="application/xml; charset=utf-8")
+
+
+@app.get("/api/site/{job_id}/robots.txt")
+def site_robots(job_id: str, request: Request):
+    if not _valid_job_id(job_id):
+        return HTMLResponse("not found", status_code=404)
+    if not generator.get_site_dict(job_id):
+        return HTMLResponse("not found", status_code=404)
+    base = str(request.base_url).rstrip("/")
+    sitemap_url = f"{base}/api/site/{job_id}/sitemap.xml"
+    txt = f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n"
+    from fastapi.responses import Response
+    return Response(content=txt.encode(), media_type="text/plain; charset=utf-8")
+
+
+@app.get("/api/site/{job_id}/vcard")
+def site_vcard(job_id: str, request: Request):
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    site = generator.get_site_dict(job_id)
+    if not site:
+        return _no_job()
+    brand = (site.get("brand") or "Contact").strip()[:80]
+    phone = (site.get("phone") or "").strip()
+    email = (site.get("email") or "").strip()
+    address = (site.get("address") or "").strip()
+    # try to enrich from vcard sections
+    for s in (site.get("sections") or []):
+        if s.get("type") == "vcard":
+            for it in (s.get("items") or []):
+                lbl = (it.get("label") or "").lower()
+                val = (it.get("value") or it.get("text") or "").strip()
+                if not val:
+                    continue
+                if "тел" in lbl or "phone" in lbl and not phone:
+                    phone = val
+                if "mail" in lbl or "почт" in lbl and not email:
+                    email = val
+                if "адрес" in lbl or "address" in lbl and not address:
+                    address = val
+        if s.get("type") == "qrcode" and not phone and site.get("phone"):
+            phone = site.get("phone")
+    # fallback to extras
+    lines = ["BEGIN:VCARD", "VERSION:3.0", f"FN:{brand}"]
+    if brand:
+        # N field: split
+        parts = brand.split()
+        if len(parts) >= 2:
+            lines.append(f"N:{parts[-1]};{' '.join(parts[:-1])};;;")
+        else:
+            lines.append(f"N:{brand};;;;")
+    if phone:
+        # sanitize tel
+        tel = re.sub(r"[^+0-9]", "", phone)
+        if tel:
+            lines.append(f"TEL;TYPE=CELL:{tel}")
+    if email and "@" in email:
+        lines.append(f"EMAIL;TYPE=INTERNET:{email}")
+    if address:
+        lines.append(f"ADR;TYPE=WORK:;;{address};;;;")
+    # org if available
+    org = (site.get("tagline") or "")[:60]
+    if org:
+        lines.append(f"ORG:{org}")
+    url = str(request.base_url).rstrip("/") + f"/api/site/{job_id}"
+    lines.append(f"URL:{url}")
+    lines.append("END:VCARD")
+    vcf = "\r\n".join(lines) + "\r\n"
+    from fastapi.responses import Response
+    return Response(
+        content=vcf.encode("utf-8"),
+        media_type="text/vcard; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename=\"{job_id}.vcf\"'},
+    )
+
+
+@app.post("/api/publish/s3/{job_id}")
+def publish_s3(job_id: str, request: Request):
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    html = generator.get_site_html(job_id)
+    site = generator.get_site_dict(job_id)
+    if not html or not site:
+        return _no_job()
+    # check S3 config via storage
+    try:
+        try:
+            import storage as st  # type: ignore
+        except ImportError:
+            import sitegen.storage as st  # type: ignore
+        bucket = getattr(st, "S3_BUCKET", "") or os.environ.get("SITEGEN_S3_BUCKET", "")
+        if not bucket or not st.is_s3():
+            return JSONResponse({"error": "S3 не настроен — задайте SITEGEN_S3_BUCKET / SITEGEN_S3_ACCESS_KEY / SITEGEN_S3_SECRET_KEY (см. README / storage.py)"}, status_code=503)
+        region = getattr(st, "S3_REGION", "eu-central-1") or os.environ.get("SITEGEN_S3_REGION", "eu-central-1")
+        endpoint = getattr(st, "S3_ENDPOINT", "") or os.environ.get("SITEGEN_S3_ENDPOINT", "")
+        key = f"sites/{job_id}/index.html"
+        # also copy assets if any
+        st.save_bytes(key, html.encode())
+        # try to save json as well
+        try:
+            st.save_bytes(f"sites/{job_id}.html", html.encode())
+        except Exception:
+            pass
+        # build public url
+        if endpoint:
+            base = endpoint.rstrip("/") + f"/{bucket}"
+        else:
+            base = f"https://{bucket}.s3.{region}.amazonaws.com"
+        public_url = f"{base}/{key}"
+        # also generate sitemap in S3
+        try:
+            sitemap = f"""<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{public_url}</loc><lastmod>{time.strftime('%Y-%m-%d')}</lastmod></url></urlset>"""
+            st.save_bytes(f"sites/{job_id}/sitemap.xml", sitemap.encode())
+        except Exception:
+            pass
+        return {"ok": True, "url": public_url, "bucket": bucket, "key": key}
+    except JSONResponse:
+        raise
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"S3 публикация не удалась: {e}"}, status_code=502)
+
+
+@app.post("/api/publish/static/{job_id}")
+def publish_static(job_id: str, request: Request):
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    html = generator.get_site_html(job_id)
+    if not html:
+        return _no_job()
+    # our hosting = just ensure file exists and return our /api/site url
+    base = str(request.base_url).rstrip("/")
+    public_url = f"{base}/api/site/{job_id}"
+    # also ensure S3 mirror if configured (optional)
+    try:
+        try:
+            import storage as st  # type: ignore
+        except ImportError:
+            import sitegen.storage as st  # type: ignore
+        if st.is_s3():
+            st.save_bytes(f"sites/{job_id}.html", html.encode())
+    except Exception:
+        pass
+    return {"ok": True, "url": public_url, "hosting": "sborka"}
 
 
 @app.get("/api/job/{job_id}")
