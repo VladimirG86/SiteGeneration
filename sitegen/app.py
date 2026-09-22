@@ -1032,6 +1032,14 @@ def auth_verify(body: AuthVerifyIn, request: Request):
 def admin():
     return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
 
+@app.get("/client", response_class=FileResponse)
+def client_panel():
+    # тестовая клиентская панель — как видит панель ваш клиент (демо-данные)
+    p = os.path.join(BASE_DIR, "static", "client.html")
+    if os.path.exists(p):
+        return FileResponse(p)
+    return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
+
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 

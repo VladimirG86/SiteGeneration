@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Клиентская панель — Nelvi · как это видит клиент</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* dashboard specifics */
+.dash{max-width:1120px;margin:0 auto;padding:18px 20px 40px;position:relative;z-index:1}
+.top-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.user-pill{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #E7E5F0;border-radius:999px;padding:6px 12px 6px 6px;box-shadow:0 6px 16px rgba(43,43,54,.06)}
+.avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#5B5FEF,#7B7FFF);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:'Unbounded',sans-serif;font-size:13px}
+.nav-tabs{display:flex;gap:8px;margin:18px 0 18px;overflow:auto;padding-bottom:2px}
+.nav-tabs button{white-space:nowrap;border:1.5px solid transparent;background:#fff;padding:10px 14px;border-radius:10px;font:inherit;font-family:'Inter',sans-serif;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--muted);transition:all .15s}
+.nav-tabs button.active{border-color:#5B5FEF;color:#5B5FEF;background:#EDEFFF;box-shadow:0 0 0 3px rgba(91,95,239,.10)}
+.nav-tabs button:hover{border-color:#CFCDE6}
+.demo-banner{display:flex;gap:12px;align-items:center;background:linear-gradient(135deg,#EDEFFF,#E6FBF9);border:1px solid #CFCDE6;border-radius:12px;padding:12px 14px;margin-bottom:16px}
+.demo-banner .dot{width:8px;height:8px;border-radius:50%;background:#2EC4B6;box-shadow:0 0 0 6px rgba(46,196,182,.18);flex-shrink:0}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:860px){.kpi{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.kpi{grid-template-columns:1fr}}
+.kpi-card{background:#fff;border:1px solid #E7E5F0;border-radius:16px;padding:16px 18px;box-shadow:0 8px 24px rgba(43,43,54,.06)}
+.kpi-card .lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#7A7A8E;font-weight:700;font-family:'Inter',sans-serif}
+.kpi-card .val{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:800;margin:6px 0 2px;letter-spacing:-.03em}
+.kpi-card .delta{font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:999px}
+.delta.up{background:rgba(46,196,182,.12);color:#1FA99B;border:1px solid #2EC4B6}
+.delta.down{background:#FFF0EB;color:#C2410C;border:1px solid #FFD6C8}
+.grid2{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-bottom:16px}
+@media(max-width:960px){.grid2{grid-template-columns:1fr}}
+.card-panel{background:#fff;border:1px solid #E7E5F0;border-radius:16px;box-shadow:0 8px 24px rgba(43,43,54,.06);overflow:hidden}
+.card-panel .head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #E7E5F0}
+.card-panel .head h3{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;letter-spacing:-.02em}
+.sites{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:16px}
+@media(max-width:760px){.sites{grid-template-columns:1fr}}
+.site-card{border:1px solid #E7E5F0;border-radius:14px;overflow:hidden;background:#fff;transition:border .15s, box-shadow .15s}
+.site-card:hover{border-color:#CFCDE6;box-shadow:0 8px 24px rgba(43,43,54,.08)}
+.thumb{height:120px;background:linear-gradient(135deg,#5B5FEF,#7B7FFF);position:relative;display:flex;align-items:center;justify-content:center;color:#fff;overflow:hidden}
+.thumb.vcard{background:linear-gradient(135deg,#FF7A59,#FF9A7A)}
+.thumb::after{content:'';position:absolute;inset:0;background:radial-gradient(300px 120px at 70% -10%, rgba(255,255,255,.22), transparent 70%)}
+.thumb .mock-browser{position:absolute;bottom:10px;left:12px;right:12px;background:#fff;border-radius:8px;height:74px;box-shadow:0 8px 18px rgba(0,0,0,.12);overflow:hidden;display:flex;flex-direction:column}
+.mock-browser .bar{height:18px;background:#F3F2F8;display:flex;align-items:center;gap:6px;padding:0 8px}
+.mock-browser .dot{width:6px;height:6px;border-radius:50%;background:#E7E5F0}
+.mock-browser .line{height:6px;background:#E7E5F0;border-radius:6px;margin:8px 10px}
+.site-body{padding:12px 14px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid #E7E5F0;background:#FAF9F7;color:#7A7A8E}
+.badge.landing{background:#EDEFFF;border-color:#CFCDE6;color:#5B5FEF}
+.badge.vcard{background:#FFF0EB;border-color:#FFD6C8;color:#C2410C}
+.site-title{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;margin:8px 0 4px;letter-spacing:-.02em}
+.site-meta{font-size:12px;color:#7A7A8E;display:flex;gap:10px;flex-wrap:wrap}
+.site-stats{display:flex;gap:10px;margin-top:10px}
+.stat-mini{flex:1;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:10px;padding:8px 10px;text-align:center}
+.stat-mini b{display:block;font-family:'Unbounded',sans-serif;font-size:13px}
+.stat-mini span{font-size:11px;color:#7A7A8E;font-weight:600}
+.site-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.site-actions a,.site-actions button{flex:1;justify-content:center}
+.leads-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid #E7E5F0}
+.chip-filter{padding:7px 10px;border-radius:999px;border:1px solid #E7E5F0;background:#fff;font-size:12px;font-weight:600;cursor:pointer}
+.chip-filter.active{background:#EDEFFF;border-color:#5B5FEF;color:#5B5FEF}
+.lead-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 16px;border-bottom:1px solid #F3F2F8;align-items:center}
+.lead-row:last-child{border-bottom:none}
+.lead-row:hover{background:#FAFAFF}
+.lead-main{display:flex;gap:12px;align-items:center;min-width:0}
+.lead-av{width:36px;height:36px;border-radius:10px;background:#EDEFFF;color:#5B5FEF;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:'Unbounded',sans-serif}
+.lead-name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lead-phone{font-size:12px;color:#7A7A8E}
+.lead-msg{font-size:12px;color:#7A7A8E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px}
+.tag{font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;border:1px solid}
+.tag.new{background:rgba(46,196,182,.12);color:#1FA99B;border-color:#2EC4B6}
+.tag.done{background:#F3F2F8;color:#7A7A8E;border-color:#E7E5F0}
+.mini-chart{padding:14px 16px}
+.bars{display:flex;align-items:end;gap:6px;height:110px;margin-top:10px}
+.bar{flex:1;background:linear-gradient(180deg,#7B7FFF,#5B5FEF);border-radius:6px 6px 0 0;min-height:8px;position:relative}
+.bar span{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:700;color:#7A7A8E}
+.bar-labels{display:flex;gap:6px;margin-top:6px}
+.bar-labels span{flex:1;text-align:center;font-size:10px;color:#7A7A8E;font-weight:600}
+.empty{padding:22px;text-align:center;color:#7A7A8E}
+.hint2{font-size:12px;color:#7A7A8E;font-family:'Inter',sans-serif}
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<header class="topbar" style="justify-content:space-between;max-width:1120px;margin:0 auto;width:100%">
+  <a class="brand" href="/" style="text-decoration:none"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M4 12L10 6M4 12L10 18M4 12H20" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="12" r="2" fill="white"/></svg></span><span>Nelvi</span><span class="tagline">клиент · демо-доступ</span></a>
+  <div class="top-actions">
+    <a href="/" class="btn-ghost small" style="padding:8px 12px">← В конструктор</a>
+    <div class="user-pill">
+      <div class="avatar">ИП</div>
+      <div style="line-height:1.1">
+        <div style="font-size:12px;font-weight:700;font-family:'Inter',sans-serif">Иван Петров</div>
+        <div style="font-size:11px;color:#7A7A8E">Премиум · ivan@svet.design</div>
+      </div>
+      <span style="margin-left:6px;background:#EDEFFF;color:#5B5FEF;border:1px solid #CFCDE6;font-size:11px;font-weight:800;padding:4px 8px;border-radius:999px">Клиент</span>
+    </div>
+  </div>
+</header>
+<div class="dash">
+  <div class="demo-banner">
+    <div class="dot"></div>
+    <div>
+      <b style="font-size:13px">Демо-режим — так видит панель ваш клиент</b>
+      <div class="hint2">Данные примерные. Чтобы показать клиенту вживую — скиньте ему ссылку на этот предпросмотр или откройте <code>/static/client.html</code> на своём домене. Реальные заявки начнут приходить после публикации сайта.</div>
+    </div>
+    <a href="#sites" class="btn-grad" style="white-space:nowrap;padding:10px 14px;font-size:13px;margin-left:auto">Показать клиенту →</a>
+  </div>
+
+  <div class="nav-tabs" role="tablist">
+    <button class="active" data-tab="overview">Обзор</button>
+    <button data-tab="sites">Мои сайты <span style="background:#EDEFFF;color:#5B5FEF;padding:2px 7px;border-radius:999px;font-size:11px">2</span></button>
+    <button data-tab="leads">Заявки <span style="background:#FFF0EB;color:#C2410C;padding:2px 7px;border-radius:999px;font-size:11px">8 · 3 новые</span></button>
+    <button data-tab="analytics">Аналитика</button>
+    <button data-tab="settings">Настройки</button>
+  </div>
+
+  <!-- OVERVIEW -->
+  <section id="tab-overview">
+    <div class="kpi">
+      <div class="kpi-card"><div class="lbl">Просмотры · 7 дней</div><div class="val">1 243</div><div class="delta up">▲ +12% к прошлой неделе</div><div class="hint2" style="margin-top:8px">Лендинг 847 · Визитка 312 · QR-сканы 84</div></div>
+      <div class="kpi-card"><div class="lbl">Заявки · 7 дней</div><div class="val">18</div><div class="delta up">▲ +3 новые сегодня</div><div class="hint2" style="margin-top:8px">Форма 14 · Корзина 4 · Звонки 6</div></div>
+      <div class="kpi-card"><div class="lbl">Конверсия</div><div class="val">1.4%</div><div class="delta up">▲ +0.3 п.п.</div><div class="hint2" style="margin-top:8px">Средняя по лендингам Nelvi — 1.1%</div></div>
+      <div class="kpi-card"><div class="lbl">Домен и публикация</div><div class="val" style="font-size:16px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#2EC4B6;display:inline-block"></span> Опубликовано</div><div class="hint2">utro.nelvi.app · SSL ✓ · sitemap.xml ✓</div><div style="margin-top:10px;display:flex;gap:8px"><a class="btn-ghost small" style="flex:1;justify-content:center" href="#settings">Домен</a><a class="btn-ghost small" style="flex:1;justify-content:center" href="#sites">ZIP</a></div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card-panel">
+        <div class="head"><h3>Быстрые действия</h3><a href="/" class="btn-ghost small">Создать сайт</a></div>
+        <div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <a href="/" class="btn-grad" style="justify-content:center;text-decoration:none">✦ Редактировать ИИ-чатом</a>
+          <a href="/admin" class="btn-ghost" style="justify-content:center;text-decoration:none">Заявки → CSV</a>
+          <button class="btn-ghost" onclick="alert('Демо: в проде — публикация на ваш домен / S3 / WordPress')" style="justify-content:center">Опубликовать на домен</button>
+          <button class="btn-ghost" onclick="alert('Демо: приглашение клиента по email')" style="justify-content:center">Пригласить клиента</button>
+        </div>
+        <div style="padding:0 16px 14px" class="hint2">Подсказка: скажите ИИ «сделай интернет-магазин с корзиной» или «смени тему на тёмную» — сайт пересоберётся на лету.</div>
+      </div>
+      <div class="card-panel">
+        <div class="head"><h3>Где клиент оставляет заявку</h3><span class="hint2">форма → вам в Telegram/почту/админку</span></div>
+        <div style="padding:14px 16px;display:grid;gap:10px">
+          <div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px;background:#FAF9F7"><span>📩</span><b style="font-size:13px">Форма на сайте</b><span class="hint2" style="margin-left:auto">POST /api/lead/{id}</span></div>
+          <div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px"><span>💬</span><b style="font-size:13px">Telegram-бот</b><span class="hint2" style="margin-left:auto">мгновенно</span></div>
+          <div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px"><span>📊</span><b style="font-size:13px">Админка / CSV</b><span class="hint2" style="margin-left:auto">/admin</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SITES -->
+  <section id="tab-sites" style="display:none">
+    <div class="card-panel">
+      <div class="head"><h3>Мои сайты</h3><a href="/" class="btn-grad small">+ Новый сайт</a></div>
+      <div class="sites" id="sites">
+        <!-- site 1 -->
+        <div class="site-card">
+          <div class="thumb">
+            <span style="position:relative;z-index:1;font-family:'Unbounded',sans-serif;font-weight:800;letter-spacing:-.03em;margin-top:-28px;text-align:center;font-size:13px;opacity:.95">Кофейня «Утро»<br><span style="font-family:'Inter',sans-serif;font-weight:600;opacity:.9;font-size:11px">лендинг · светлая · coral</span></span>
+            <div class="mock-browser"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:auto;font-size:9px;color:#A9A8B5">utro.nelvi.app</span></div><div class="line" style="width:72%"></div><div class="line" style="width:54%"></div><div class="line" style="width:38%;background:#EDEFFF"></div></div>
+          </div>
+          <div class="site-body">
+            <span class="badge landing">● Лендинг</span>
+            <div class="site-title">Кофейня «Утро» — Москва</div>
+            <div class="site-meta"><span>utro.nelvi.app</span><span>· обновлён 2 ч назад</span><span>· #5B5FEF</span></div>
+            <div class="site-stats"><div class="stat-mini"><b>847</b><span>просмотров</span></div><div class="stat-mini"><b>12</b><span>заявок</span></div><div class="stat-mini"><b>1.4%</b><span>конверсия</span></div></div>
+            <div class="site-actions">
+              <a class="btn-ghost small" href="/demo/landing.html" target="_blank">Открыть</a>
+              <a class="btn-grad small" href="/">Редактор ✦</a>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <a class="btn-ghost small" style="flex:1;justify-content:center" href="#leads" onclick="switchTab('leads')">Заявки · 12</a>
+              <button class="btn-ghost small" style="flex:1;justify-content:center" onclick="alert('Демо: sitemap.xml / robots.txt / домен')">SEO</button>
+            </div>
+          </div>
+        </div>
+        <!-- site 2 -->
+        <div class="site-card">
+          <div class="thumb vcard">
+            <span style="position:relative;z-index:1;font-family:'Unbounded',sans-serif;font-weight:800;letter-spacing:-.03em;margin-top:-28px;text-align:center;font-size:13px">Анна Смирнова<br><span style="font-family:'Inter',sans-serif;font-weight:600;opacity:.9;font-size:11px">QR-визитка · 3 ссылки · myqrcards</span></span>
+            <div class="mock-browser" style="height:78px"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:auto;font-size:9px;color:#A9A8B5">anna.nelvi.app</span></div><div style="display:flex;gap:8px;padding:10px"><div style="width:44px;height:44px;border-radius:8px;background:#EDEFFF;border:1px solid #CFCDE6"></div><div style="flex:1;display:grid;gap:6px"><div class="line" style="margin:0;width:80%"></div><div class="line" style="margin:0;width:60%"></div><div style="display:flex;gap:6px"><span style="flex:1;height:22px;background:#5B5FEF;border-radius:999px"></span><span style="flex:1;height:22px;background:#FFF0EB;border:1px solid #FFD6C8;border-radius:999px"></span></div></div></div></div>
+          </div>
+          <div class="site-body">
+            <span class="badge vcard">◆ QR-визитка</span>
+            <div class="site-title">Анна Смирнова — арт-директор</div>
+            <div class="site-meta"><span>anna.nelvi.app</span><span>· QR 84 скана</span><span>· .vcf ✓</span></div>
+            <div class="site-stats"><div class="stat-mini"><b>312</b><span>просмотров</span></div><div class="stat-mini"><b>5</b><span>заявок</span></div><div class="stat-mini"><b>84</b><span>скана QR</span></div></div>
+            <div class="site-actions">
+              <a class="btn-ghost small" href="/demo/vcard.html" target="_blank">Открыть</a>
+              <a class="btn-grad small" href="/">Редактор ✦</a>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <a class="btn-ghost small" style="flex:1;justify-content:center" href="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://anna.nelvi.app" target="_blank">QR</a>
+              <a class="btn-ghost small" style="flex:1;justify-content:center" href="/api/site/demo/vcard" target="_blank">.vcf</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:0 16px 14px" class="hint2">Нажмите «Редактор ✦» → чат с ИИ: «добавь блок с ценами», «сделай магазин», «смени акцент на коралловый». Каждую правку можно отменить.</div>
+    </div>
+  </section>
+
+  <!-- LEADS -->
+  <section id="tab-leads" style="display:none">
+    <div class="card-panel">
+      <div class="leads-head">
+        <h3 style="font-family:'Unbounded',sans-serif;font-size:14px">Заявки</h3>
+        <span class="hint2">демо-данные · в проде — из /api/leads + Telegram</span>
+        <span style="flex:1"></span>
+        <button class="chip-filter active" data-f="all">Все 8</button>
+        <button class="chip-filter" data-f="new">Новые 3</button>
+        <button class="chip-filter" data-f="done">Обработано</button>
+        <a href="/admin" class="btn-ghost small">Админка / CSV →</a>
+      </div>
+      <div id="leads-list">
+        <!-- rows injected by js -->
+      </div>
+      <div style="padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-ghost small" onclick="alert('Демо: экспорт CSV /api/leads/{id}/csv?token=...')">Скачать CSV</button>
+        <button class="btn-ghost small" onclick="alert('Демо: интеграция AmoCRM / Bitrix24 — по вебхуку')">Интеграция CRM →</button>
+        <span class="hint2" style="align-self:center">Каждая заявка дублируется в S3 и в Telegram если задан TELEGRAM_BOT_TOKEN</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ANALYTICS -->
+  <section id="tab-analytics" style="display:none">
+    <div class="grid2">
+      <div class="card-panel">
+        <div class="head"><h3>Просмотры · неделя</h3><span class="hint2">демо</span></div>
+        <div class="mini-chart">
+          <div class="bars" id="bars"></div>
+          <div class="bar-labels"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+          <div class="hint2" style="margin-top:10px">Пик в среду — публикация в соцсетях. Подключите Яндекс.Метрику / GA4 в «Настройках» — графики станут реальными.</div>
+        </div>
+      </div>
+      <div class="card-panel">
+        <div class="head"><h3>Откуда приходят</h3></div>
+        <div style="padding:14px 16px;display:grid;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:13px;font-weight:600">Прямые заходы</span><span style="width:120px;height:8px;background:#E7E5F0;border-radius:999px;overflow:hidden"><span style="display:block;width:42%;height:100%;background:#5B5FEF;border-radius:999px"></span></span><b style="font-size:13px">42%</b></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:13px;font-weight:600">Поиск (Яндекс/Google)</span><span style="width:120px;height:8px;background:#E7E5F0;border-radius:999px;overflow:hidden"><span style="display:block;width:31%;height:100%;background:#7B7FFF;border-radius:999px"></span></span><b style="font-size:13px">31%</b></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:13px;font-weight:600">Соцсети / QR</span><span style="width:120px;height:8px;background:#E7E5F0;border-radius:999px;overflow:hidden"><span style="display:block;width:18%;height:100%;background:#2EC4B6;border-radius:999px"></span></span><b style="font-size:13px">18%</b></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:13px;font-weight:600">Ссылки с визитки</span><span style="width:120px;height:8px;background:#E7E5F0;border-radius:999px;overflow:hidden"><span style="display:block;width:9%;height:100%;background:#FF7A59;border-radius:999px"></span></span><b style="font-size:13px">9%</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-settings" style="display:none">
+    <div class="grid2">
+      <div class="card-panel">
+        <div class="head"><h3>Домен и публикация</h3></div>
+        <div style="padding:16px;display:grid;gap:12px">
+          <div style="display:flex;gap:10px;align-items:center;padding:12px;border:1px solid #2EC4B6;background:rgba(46,196,182,.08);border-radius:12px"><span style="width:8px;height:8px;border-radius:50%;background:#2EC4B6"></span><b style="font-size:13px">utro.nelvi.app</b><span class="hint2" style="margin-left:auto">SSL ✓ sitemap ✓</span></div>
+          <label class="field" style="margin:0"><span style="font-weight:700">Свой домен</span><input placeholder="example.com" value=""><div class="hint2">Подключите через CNAME → caddy.nelvi.app, SSL выпустим автоматически (Caddy on-demand)</div></label>
+          <div style="display:flex;gap:8px"><button class="btn-grad small" style="flex:1;justify-content:center">Подключить домен</button><button class="btn-ghost small" style="flex:1;justify-content:center">Скачать ZIP</button></div>
+          <div class="hint2">Также: экспорт ZIP, публикация на S3, отправка в WordPress — в «Редакторе → Публикация».</div>
+        </div>
+      </div>
+      <div class="card-panel">
+        <div class="head"><h3>Тариф и команда</h3><span class="badge" style="background:#EDEFFF;color:#5B5FEF">Премиум</span></div>
+        <div style="padding:16px;display:grid;gap:12px">
+          <div style="display:flex;gap:12px;align-items:center"><div style="font-family:'Unbounded',sans-serif;font-size:22px;font-weight:800">990 ₽<span style="font-size:13px;color:#7A7A8E">/мес</span></div><span style="margin-left:auto;background:rgba(46,196,182,.12);color:#1FA99B;border:1px solid #2EC4B6;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700">Оплачено до 22.10.2026</span></div>
+          <div class="hint2">Безлимит сайтов · ИИ-редактор · импорт по ссылке · S3/домены · Telegram · снятие лимитов</div>
+          <div style="display:flex;gap:8px"><button class="btn-ghost small" style="flex:1">Сменить тариф</button><button class="btn-ghost small" style="flex:1">Счета</button></div>
+          <div style="border-top:1px solid #E7E5F0;padding-top:12px;display:grid;gap:8px">
+            <b style="font-size:13px">Команда</b>
+            <div style="display:flex;gap:8px;align-items:center"><div class="avatar" style="width:28px;height:28px;font-size:11px">ИП</div><span style="font-size:13px;font-weight:600">Иван Петров</span><span class="hint2" style="margin-left:auto">владелец</span></div>
+            <button class="btn-ghost small" style="justify-content:center">Пригласить коллегу →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-panel" style="margin-top:16px">
+      <div class="head"><h3>Интеграции</h3><span class="hint2">по желанию</span></div>
+      <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div style="border:1px solid #E7E5F0;border-radius:12px;padding:12px"><b style="font-size:13px">Telegram</b><div class="hint2">Заявки в личку/чат</div><button class="btn-ghost small" style="margin-top:8px;width:100%;justify-content:center">Подключить</button></div>
+        <div style="border:1px solid #E7E5F0;border-radius:12px;padding:12px"><b style="font-size:13px">AmoCRM / Bitrix24</b><div class="hint2">Вебхук / API</div><button class="btn-ghost small" style="margin-top:8px;width:100%;justify-content:center">Настроить</button></div>
+        <div style="border:1px solid #E7E5F0;border-radius:12px;padding:12px"><b style="font-size:13px">Метрика / GA4</b><div class="hint2">Вставьте ID счётчика</div><button class="btn-ghost small" style="margin-top:8px;width:100%;justify-content:center">Добавить</button></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="hint2" style="text-align:center;margin-top:16px">Ссылка для клиента: <code id="share-link"></code> · также доступна как <a href="/static/client.html" style="color:#5B5FEF">/static/client.html</a> и <a href="/client" style="color:#5B5FEF">/client</a> (если настроен роут)</p>
+</div>
+<script>
+function switchTab(id){
+  document.querySelectorAll('.nav-tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
+  ['overview','sites','leads','analytics','settings'].forEach(t=>{ const el=document.getElementById('tab-'+t); if(el) el.style.display = (t===id?'':'none'); });
+  if(id==='leads') renderLeads(currentFilter);
+  if(id==='analytics') renderBars();
+  location.hash = id;
+}
+document.querySelectorAll('.nav-tabs button').forEach(b=> b.addEventListener('click', ()=> switchTab(b.dataset.tab)));
+if(location.hash) { const h=location.hash.replace('#',''); if(['overview','sites','leads','analytics','settings'].includes(h)) switchTab(h); }
+
+// leads demo
+const demoLeads=[
+  {name:'Алексей Морозов', phone:'+7 900 123-45-67', msg:'Хочу записаться на диагностику, когда свободно?', site:'Кофейня «Утро»', time:'10 мин назад', tag:'new'},
+  {name:'Марина К.', phone:'+7 912 345-67-89', msg:'Сколько стоит лендинг под ключ?', site:'Анна Смирнова', time:'1 ч назад', tag:'new'},
+  {name:'Олег', phone:'+7 999 888-77-66', msg:'Нужна QR-визитка с 5 ссылками', site:'Анна Смирнова', time:'3 ч назад', tag:'new'},
+  {name:'Елена', phone:'+7 905 111-22-33', msg:'Заказ: Латте 2 шт + круассан', site:'Кофейня «Утро»', time:'вчера 18:42', tag:'done'},
+  {name:'Дмитрий', phone:'+7 917 222-33-44', msg:'Хочу перенести сайт с Tilda', site:'Кофейня «Утро»', time:'вчера 15:10', tag:'done'},
+  {name:'Анна', phone:'+7 921 333-44-55', msg:'Подскажите по тарифу Премиум', site:'—', time:'22 сен', tag:'done'},
+  {name:'Игорь', phone:'+7 903 444-55-66', msg:'Корзина: 2× Диагностика — 1500 ₽', site:'Кофейня «Утро»', time:'21 сен', tag:'done'},
+  {name:'Светлана', phone:'+7 926 555-66-77', msg:'Перезвоните после 18:00', site:'Анна Смирнова', time:'21 сен', tag:'done'},
+];
+let currentFilter='all';
+function renderLeads(f){
+  currentFilter=f||currentFilter;
+  const box=document.getElementById('leads-list');
+  const filtered = demoLeads.filter(l=> f==='all' || (f==='new'?l.tag==='new':l.tag==='done'));
+  box.innerHTML = filtered.map((l,i)=> `
+    <div class="lead-row">
+      <div class="lead-main">
+        <div class="lead-av">${l.name.split(' ').map(s=>s[0]).join('').slice(0,2)}</div>
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="lead-name">${l.name}</span><span class="tag ${l.tag==='new'?'new':'done'}">${l.tag==='new'?'новая':'обработано'}</span><span class="hint2">${l.time} · ${l.site}</span></div>
+          <div class="lead-phone">${l.phone} · <a href="tel:${l.phone.replace(/[^+0-9]/g,'')}" style="color:#5B5FEF;text-decoration:none">позвонить</a> · <a href="https://wa.me/${l.phone.replace(/[^0-9]/g,'')}" target="_blank" style="color:#2EC4B6;text-decoration:none">WhatsApp</a></div>
+          <div class="lead-msg">${l.msg}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-ghost small" onclick="this.closest('.lead-row').style.opacity=.5; this.textContent='✓'">Обработать</button>
+      </div>
+    </div>
+  `).join('') || '<div class="empty">Нет заявок в этой вкладке</div>';
+  document.querySelectorAll('.chip-filter').forEach(c=> c.classList.toggle('active', c.dataset.f===currentFilter));
+}
+document.querySelectorAll('.chip-filter').forEach(c=> c.addEventListener('click', ()=> renderLeads(c.dataset.f)));
+renderLeads('all');
+function renderBars(){
+  const vals=[42,68,95,72,84,38,55];
+  const max=Math.max(...vals);
+  document.getElementById('bars').innerHTML = vals.map(v=> `<div class="bar" style="height:${Math.round(v/max*100)}%"><span>${v}</span></div>`).join('');
+}
+renderBars();
+document.getElementById('share-link').textContent = location.origin + location.pathname;
+</script>
+</body>
+</html>
