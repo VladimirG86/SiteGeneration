@@ -98,10 +98,30 @@ def _save_all(job_id: str, site: dict, html: str, push_version: bool):
         hist = hist[-MAX_VERSIONS:]
         with open(p["hist"], "w", encoding="utf-8") as f:
             json.dump(hist, f, ensure_ascii=False)
+        # s3 mirror history
+        try:
+            try:
+                import storage as _st  # type: ignore
+            except ImportError:
+                import sitegen.storage as _st  # type: ignore
+            if _st.is_s3():
+                _st.save_bytes(f"sites/{job_id}.history.json", json.dumps(hist, ensure_ascii=False).encode())
+        except Exception:
+            pass
     with open(p["site"], "w", encoding="utf-8") as f:
         json.dump(site, f, ensure_ascii=False)
     with open(p["html"], "w", encoding="utf-8") as f:
         f.write(html)
+    try:
+        try:
+            import storage as _st  # type: ignore
+        except ImportError:
+            import sitegen.storage as _st  # type: ignore
+        if _st.is_s3():
+            _st.save_bytes(f"sites/{job_id}.json", json.dumps(site, ensure_ascii=False).encode())
+            _st.save_bytes(f"sites/{job_id}.html", html.encode())
+    except Exception:
+        pass
 
 
 # ------------------------------------------------------------ статус -------
@@ -292,6 +312,11 @@ def run_import_job(job_id: str):
         # 1. Разбираем
         _set_stage(job, 1)
         signals = importer.extract_signals(html, final_url)
+        # sitemap: догружаем до 5 доп. страниц (не критично)
+        try:
+            importer.augment_signals_with_sitemap(signals, final_url, max_extra=5)
+        except Exception as e:  # noqa: BLE001
+            print(f"[IMPORT] sitemap skipped: {e}")
         time.sleep(0.5)
         # 2. Адаптируем (LLM или эвристика)
         _set_stage(job, 2)

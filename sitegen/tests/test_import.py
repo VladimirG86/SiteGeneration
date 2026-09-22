@@ -151,6 +151,66 @@ def test_try_attach_images(tmp_path, monkeypatch):
     assert os.path.exists(os.path.join(str(tmp_path / "assets"), "job123", "hero.webp"))
 
 
+def test_sitemap_discovery_and_augment(monkeypatch):
+    sm = """<?xml version="1.0"?><urlset><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url><url><loc>https://example.com/c.jpg</loc></url><url><loc>https://example.com/sitemap2.xml</loc></url></urlset>"""
+    sm2 = """<?xml version="1.0"?><urlset><url><loc>https://example.com/d</loc></url></urlset>"""
+    def _fake_fetch(url, **kw):
+        if "sitemap2.xml" in url:
+            return sm2
+        if "sitemap" in url:
+            return sm
+        if "robots" in url:
+            return "User-agent: *\nSitemap: https://example.com/sitemap.xml"
+        return None
+    monkeypatch.setattr(importer, "_fetch_text_quick", _fake_fetch)
+    urls = importer.discover_sitemap_urls("https://example.com", limit=5)
+    assert "https://example.com/a" in urls
+    assert "https://example.com/d" in urls
+    assert not any(u.endswith(".jpg") for u in urls)
+    # augment: догружаем страницы
+    signals = {"url": "https://example.com", "h2": ["H2 main"], "h3": [], "paragraphs": ["p1"], "images": [], "colors": [], "phones": [], "text_dump": "hello"}
+    html_a = """<html><head><title>A</title></head><body><h2>A H2</h2><p>A para</p></body></html>"""
+    monkeypatch.setattr(importer, "fetch_html", lambda url: (html_a, url))
+    monkeypatch.setattr(importer, "discover_sitemap_urls", lambda base, limit=12: ["https://example.com/a","https://example.com/b"][:2])
+    n = importer.augment_signals_with_sitemap(signals, "https://example.com", max_extra=2)
+    assert n == 2
+    assert "A H2" in signals["h2"]
+
+
+def test_leads_csv_export(client, tmp_path, monkeypatch):
+    import app as appmod, generator, json as _json, os
+    appmod._RATE.clear()
+    jid = "testcsv1"
+    p = os.path.join(generator.SITES_DIR, f"{jid}.leads.json")
+    os.makedirs(generator.SITES_DIR, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        _json.dump([{"name": "Анна", "phone": "+7000", "comment": "тест", "type": "lead", "items": [{"name": "Товар А", "qty": 2}]}], f, ensure_ascii=False)
+    r = client.get(f"/api/leads/{jid}/csv")
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "Анна" in r.text
+    assert "Товар А" in r.text
+
+
+def test_storage_local_roundtrip(tmp_path, monkeypatch):
+    import storage
+    # форсим локально без S3
+    monkeypatch.setattr(storage, "S3_BUCKET", "")
+    storage._s3_client = None  # type: ignore
+    data = b"hello storage"
+    storage.save_bytes("sites/__test_storage.json", data)
+    assert storage.exists("sites/__test_storage.json")
+    assert storage.load_bytes("sites/__test_storage.json") == data
+    storage.delete("sites/__test_storage.json")
+    assert not storage.exists("sites/__test_storage.json")
+
+
+def test_admin_page(client):
+    r = client.get("/admin")
+    assert r.status_code == 200
+    assert "админка" in r.text.lower() or "Заявки" in r.text
+
+
 def test_import_api_mocked(client, tmp_path, monkeypatch):
     html = """<html><head><title>Site Imported</title></head><body><h1>Заголовок импорта</h1><p>+7 (900) 222-33-44</p><style>.a{color:#2563eb}</style></body></html>"""
     import app as appmod

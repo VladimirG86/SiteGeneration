@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Админка — СБОРКА</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.admin-wrap{max-width:900px;margin:0 auto;padding:28px 20px}
+.admin-card{background:#fff;border-radius:18px;box-shadow:0 18px 44px rgba(28,31,74,.12);padding:24px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+@media(max-width:640px){.kv{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;margin-top:16px;font-size:14px}
+th,td{border:1px solid #e7e9f2;padding:8px 10px;text-align:left}
+th{background:#f6f7fb;font-weight:700}
+.badge{font-size:12px;background:#eef0ff;color:#4f46e5;border-radius:999px;padding:2px 8px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div>
+<header class="topbar"><a class="brand" href="/"><span>СБОРКА<b>.ai</b></span> — админка</a></header>
+<main>
+<div class="admin-wrap">
+<div class="admin-card">
+<h2>Заявки с сайтов <span class="badge" id="count">0</span></h2>
+<p class="sub" style="font-size:14px">Введите ID сайта и токен (SITEGEN_ADMIN_TOKEN) чтобы увидеть заявки. Токен можно передать как <code>?token=...</code> в URL.</p>
+<div class="kv">
+<label class="field" style="margin:0">ID сайта<input id="siteId" placeholder="a1b2c3d4e5" style="margin-top:6px"></label>
+<label class="field" style="margin:0">Admin Token<input id="token" placeholder="secret" type="password" style="margin-top:6px"></label>
+</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+<button id="load" class="btn-grad">Загрузить</button>
+<a id="csv" class="btn-ghost" target="_blank">Скачать CSV</a>
+<button id="clear" class="btn-ghost">Очистить</button>
+<span id="status" class="hint" style="align-self:center"></span>
+</div>
+<div style="overflow:auto">
+<table id="tbl"><thead><tr><th>#</th><th>Имя</th><th>Телефон</th><th>Комментарий</th><th>Тип</th><th>Состав</th></tr></thead><tbody></tbody></table>
+</div>
+<p class="hint" style="margin-top:12px">Подсказка: форма на сайте шлёт <code>POST /api/lead/{id}</code>. Смотрите также <code>GET /api/leads/{id}?token=...</code>.</p>
+</div>
+</div>
+</main>
+<script>
+(function(){
+  const $=s=>document.getElementById(s);
+  const p=new URLSearchParams(location.search);
+  if(p.get("site")) $("siteId").value=p.get("site");
+  if(p.get("token")) $("token").value=p.get("token");
+  function updCsv(){
+    const id=$("siteId").value.trim(), t=$("token").value.trim();
+    const u=id?`/api/leads/${encodeURIComponent(id)}/csv${t?"?token="+encodeURIComponent(t):""}`:"#";
+    $("csv").href=u;
+  }
+  $("siteId").addEventListener("input", updCsv);
+  $("token").addEventListener("input", updCsv);
+  updCsv();
+  $("load").addEventListener("click", async()=>{
+    const id=$("siteId").value.trim();
+    if(!id){$("status").textContent="Укажите ID";return}
+    const t=$("token").value.trim();
+    const url=`/api/leads/${encodeURIComponent(id)}${t?"?token="+encodeURIComponent(t):""}`;
+    $("status").textContent="Загрузка…";
+    try{
+      const r=await fetch(url);
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.error||r.status);
+      const tb=$("tbl").querySelector("tbody");
+      tb.innerHTML="";
+      (j||[]).forEach((lead,i)=>{
+        const tr=document.createElement("tr");
+        const items=(lead.items||[]).map(it=>`${it.qty}×${it.name}`).join("; ");
+        tr.innerHTML=`<td>${i+1}</td><td>${esc(lead.name||"")}</td><td>${esc(lead.phone||"")}</td><td>${esc(lead.comment||"")}</td><td>${esc(lead.type||"")}</td><td>${esc(items)}</td>`;
+        tb.appendChild(tr);
+      });
+      $("count").textContent=j.length;
+      $("status").textContent=`Загружено ${j.length}`;
+    }catch(e){$("status").textContent="Ошибка: "+e.message}
+  });
+  $("clear").addEventListener("click",()=>{
+    $("tbl").querySelector("tbody").innerHTML="";
+    $("count").textContent="0";
+    $("status").textContent="";
+  });
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+})();
+</script>
+</body>
+</html>

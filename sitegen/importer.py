@@ -341,6 +341,118 @@ def _to_webp(data: bytes, max_side: int = 900) -> bytes | None:
         return None
 
 
+# ------------------------------------------------------ sitemap --------
+
+_RE_SITEMAP_LOC = re.compile(r"<loc>\s*(.*?)\s*</loc>", re.I)
+_RE_ROBOTS_SITEMAP = re.compile(r"Sitemap:\s*(\S+)", re.I)
+
+def _fetch_text_quick(url: str, timeout: float = 7.0) -> str | None:
+    try:
+        validate_url(url)
+    except ValueError:
+        return None
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, max_redirects=3,
+                          headers={"User-Agent": "SborkaImport/1.0"}) as cl:
+            r = cl.get(url)
+            r.raise_for_status()
+            return r.text[:600_000]
+    except Exception:
+        return None
+
+def discover_sitemap_urls(base_url: str, limit: int = 14) -> list[str]:
+    """Находит URL страниц через sitemap.xml / robots.txt. Макс. limit."""
+    p = urlparse(base_url)
+    origin = f"{p.scheme}://{p.hostname}" + (f":{p.port}" if p.port else "")
+    candidates = [urljoin(origin + "/", "sitemap.xml"), urljoin(origin + "/", "sitemap_index.xml")]
+    # robots.txt подсказа
+    robots = _fetch_text_quick(urljoin(origin + "/", "robots.txt"))
+    if robots:
+        for m in _RE_ROBOTS_SITEMAP.finditer(robots):
+            u = m.group(1).strip()
+            if u not in candidates:
+                candidates.append(u)
+    locs: list[str] = []
+    seen_sitemaps: set[str] = set()
+    queue = candidates[:]
+    while queue and len(locs) < limit * 3:
+        sm_url = queue.pop(0)
+        if sm_url in seen_sitemaps:
+            continue
+        seen_sitemaps.add(sm_url)
+        xml = _fetch_text_quick(sm_url)
+        if not xml or "<loc>" not in xml.lower():
+            continue
+        for m in _RE_SITEMAP_LOC.finditer(xml):
+            loc = m.group(1).strip()
+            if not loc:
+                continue
+            if loc.lower().endswith(".xml"):
+                if loc not in seen_sitemaps and len(queue) < 6:
+                    queue.append(loc)
+                continue
+            # только тот же хост
+            try:
+                if urlparse(loc).hostname != p.hostname:
+                    continue
+            except Exception:
+                continue
+            # только html-страницы (не картинки/пдф)
+            if re.search(r"\.(jpg|jpeg|png|webp|pdf|zip)(\?|$)", loc, re.I):
+                continue
+            if loc not in locs:
+                locs.append(loc)
+            if len(locs) >= limit * 3:
+                break
+    # приоритизируем короткие URL (главные разделы)
+    locs = sorted(set(locs), key=lambda u: (len(u), u))[:limit]
+    return locs
+
+
+def augment_signals_with_sitemap(signals: dict, base_url: str, max_extra: int = 5) -> int:
+    """Догружает до max_extra страниц из sitemap и сливает в signals. Возвращает кол-во."""
+    # не флудим если текста уже много
+    if len(signals.get("text_dump", "")) > 6000 and len(signals.get("images", [])) >= 6:
+        # всё равно пробуем sitemap — может дать новые разделы
+        pass
+    urls = discover_sitemap_urls(base_url, limit=12)
+    # убираем сам base_url
+    urls = [u for u in urls if u.rstrip("/") != base_url.rstrip("/")][:max_extra]
+    if not urls:
+        return 0
+    added = 0
+    for u in urls:
+        try:
+            html, _ = fetch_html(u)
+        except Exception:
+            continue
+        extra = extract_signals(html, u)
+        # сливаем
+        for k in ("h2", "h3", "paragraphs"):
+            for item in extra.get(k) or []:
+                if item not in signals.get(k, []) and len(signals.get(k, [])) < 20:
+                    signals[k].append(item)
+        for im in extra.get("images") or []:
+            if im not in signals["images"] and len(signals["images"]) < 12:
+                signals["images"].append(im)
+        for c in extra.get("colors") or []:
+            if c not in signals["colors"] and len(signals["colors"]) < 14:
+                signals["colors"].append(c)
+        if extra.get("phones"):
+            for ph in extra["phones"]:
+                if ph not in signals["phones"] and len(signals["phones"]) < 4:
+                    signals["phones"].append(ph)
+        # текст
+        extra_text = extra.get("text_dump", "")
+        if extra_text:
+            signals["text_dump"] = (signals.get("text_dump", "") + " " + extra_text)[:12000]
+            signals["paragraphs"] = signals.get("paragraphs", [])  # уже
+        added += 1
+        if added >= max_extra:
+            break
+    return added
+
+
 def try_attach_original_images(site: dict, signals: dict, job_id: str) -> bool:
     """Пытается скачать первое фото оригинала и поставить как hero. True если удалось."""
     imgs = [u for u in (signals.get("images") or []) if u and isinstance(u, str)]

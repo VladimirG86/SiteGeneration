@@ -491,6 +491,17 @@ def _read_leads(site_id: str) -> list:
         return []
 
 
+def _leads_csv(leads: list) -> str:
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["#", "name", "phone", "comment", "type", "items"])
+    for i, l in enumerate(leads, 1):
+        items = "; ".join(f"{it.get('qty',1)}x{it.get('name','')}" for it in (l.get("items") or []))
+        w.writerow([i, l.get("name",""), l.get("phone",""), l.get("comment",""), l.get("type",""), items])
+    return buf.getvalue()
+
+
 @app.post("/api/lead/{site_id}")
 def lead(site_id: str, body: LeadIn, request: Request):
     if _limited(request, "lead"):
@@ -503,6 +514,17 @@ def lead(site_id: str, body: LeadIn, request: Request):
         leads.append(body.model_dump())
         with open(p, "w", encoding="utf-8") as f:
             json.dump(leads, f, ensure_ascii=False)
+        # дубль в S3 если включён
+        try:
+            try:
+                import storage as storage  # type: ignore
+            except ImportError:
+                import sitegen.storage as storage  # type: ignore
+            if storage.is_s3():  # type: ignore[attr-defined]
+                import json as _j
+                storage.save_bytes(f"sites/{site_id}.leads.json", _j.dumps(leads, ensure_ascii=False).encode())  # type: ignore[attr-defined]
+        except Exception:
+            pass
     tag = "CART" if body.type == "cart" else "LEAD"
     print(f"[{tag}] site={site_id} {body.model_dump()}")
     return {"ok": True}
@@ -518,6 +540,25 @@ def leads(site_id: str, request: Request):
         return JSONResponse({"error": "bad site id"}, status_code=400)
     with _LEAD_LOCK:
         return _read_leads(site_id)
+
+
+@app.get("/api/leads/{site_id}/csv")
+def leads_csv(site_id: str, request: Request):
+    if ADMIN_TOKEN:
+        got = request.query_params.get("token") or request.headers.get("x-admin-token")
+        if got != ADMIN_TOKEN:
+            return JSONResponse({"error": "Нужен admin-токен"}, status_code=401)
+    if not _valid_job_id(site_id):
+        return JSONResponse({"error": "bad site id"}, status_code=400)
+    with _LEAD_LOCK:
+        data = _read_leads(site_id)
+    csv_text = _leads_csv(data)
+    from fastapi.responses import Response
+    return Response(
+        content=csv_text.encode("utf-8-sig"),  # BOM для Excel
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="leads-{site_id}.csv"'},
+    )
 
 
 # ----------------------------------------------------------- авторизация ----
@@ -597,6 +638,10 @@ def auth_verify(body: AuthVerifyIn, request: Request):
 
 
 # --------------------------------------------------------------- static ----
+
+@app.get("/admin", response_class=FileResponse)
+def admin():
+    return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
