@@ -25,6 +25,41 @@ SECTION_TYPES = ("hero", "services", "advantages", "about", "process",
 
 ACCENTS = ("purple", "blue", "emerald", "orange", "rose", "teal")
 
+_ACCENT_ALIASES = {
+    "purple":   ("purple","фиолет","индиго","инди"),
+    "blue":     ("blue","синий","синяя","синее","вуаль","голуб"),
+    "emerald":  ("emerald","минт","мят","изумруд","бирюз","зелен","emerald"),
+    "orange":   ("orange","оранж","коралл","корал","рыж"),
+    "rose":     ("rose","розов","персик","peach","роз"),
+    "teal":     ("teal","графит","серый","серая","темно","тёмно","черн"),
+}
+_MODE_ALIASES = {
+    "dark": ("dark","темн","тёмн","черн","ночн"),
+    "light":("light","светл","белый","день"),
+}
+def _norm_accent(v):
+    if not v:
+        return None
+    s=str(v).lower().strip()
+    if s in ACCENTS:
+        return s
+    for acc, kws in _ACCENT_ALIASES.items():
+        for kw in kws:
+            if kw in s:
+                return acc
+    return None
+def _norm_mode(v):
+    if not v:
+        return None
+    s=str(v).lower().strip()
+    if s in ("light","dark"):
+        return s
+    for mode, kws in _MODE_ALIASES.items():
+        for kw in kws:
+            if kw in s:
+                return mode
+    return None
+
 # Блоки-одиночки: второй такой же создать нельзя, upsert/add заменяет.
 SINGLETON_TYPES = ("hero", "contacts", "profile", "qrcode", "vcard")
 
@@ -297,11 +332,16 @@ def apply_ops(site: dict, ops: list) -> tuple[int, list]:
 
         if kind == "set_theme":
             theme = site.setdefault("theme", {})
-            if op.get("mode") in ("light", "dark"):
-                theme["mode"] = op["mode"]
-            if op.get("accent") in ACCENTS:
-                theme["accent"] = op["accent"]
-            applied += 1
+            m=_norm_mode(op.get("mode"))
+            a=_norm_accent(op.get("accent"))
+            if m:
+                theme["mode"] = m
+            if a:
+                theme["accent"] = a
+            if m or a:
+                applied += 1
+            else:
+                notes.append("неверный theme — пропустил")
 
         elif kind == "set_info":
             info = {k: _s(op.get(k), 120) for k in

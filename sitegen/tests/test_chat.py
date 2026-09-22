@@ -178,3 +178,16 @@ def test_editor_messages_contain_ids():
     site = _site()
     msgs = chat.build_editor_messages(site, [], "смени тему")
     assert '"id":"hero"' in msgs[-1]["content"] or '"id": "hero"' in msgs[-1]["content"]
+
+def test_set_theme_russian_aliases():
+    import chat as c
+    for acc, expect in [("синий","blue"),("Синий","blue"),("мятный","emerald"),("оранжевый","orange"),("персик","rose"),("графит","teal"),("фиолетовый","purple")]:
+        site={"theme":{"mode":"light","accent":"purple"},"sections":[{"type":"hero"},{"type":"contacts"}]}
+        applied,_=c.apply_ops(site,[{"op":"set_theme","accent":acc}])
+        assert site["theme"]["accent"]==expect, f"{acc} -> {site['theme']['accent']}"
+        assert applied==1
+    for mode, expect in [("темная","dark"),("тёмная тема","dark"),("светлая","light"),("ночной","dark")]:
+        site={"theme":{"mode":"light","accent":"purple"},"sections":[{"type":"hero"},{"type":"contacts"}]}
+        c.apply_ops(site,[{"op":"set_theme","mode":mode}])
+        assert site["theme"]["mode"]==expect
+
