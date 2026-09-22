@@ -77,6 +77,30 @@ def extract_city(text: str):
     return "", ""
 
 
+def _extract_phone(text: str) -> str:
+    if not text:
+        return ""
+    # ищем российский номер +7 / 8
+    m = re.search(r"\+?7\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", text)
+    if not m:
+        m = re.search(r"8\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", text)
+    if not m:
+        return ""
+    digits = re.sub(r"\D", "", m.group(0))
+    # normalize to +7 (XXX) XXX-XX-XX
+    if len(digits) == 11 and digits[0] in ("7","8"):
+        digits = "7" + digits[1:]
+        return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:11]}"
+    if len(digits) == 10:
+        return f"+7 ({digits[0:3]}) {digits[3:6]}-{digits[6:8]}-{digits[8:10]}"
+    return m.group(0).strip()
+
+def _extract_email(text: str) -> str:
+    if not text:
+        return ""
+    m = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
+    return m.group(0).strip() if m else ""
+
 def _clean_name_price(line: str):
     """«Диагностика - от 1500 руб» → («Диагностика», «от 1500 ₽»)."""
     m = TAIL_PRICE_RE.search(line)
@@ -353,14 +377,20 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
               "Предоплату просим только на материалы."},
     ]
 
+    # phone/email — берём из анкеты если есть, иначе дефолт
+    _all_text = " ".join([about_text, a("Услуги/товары"), a("Преимущества"), a("Дополнительно"), answers.get("email") or "", answers.get("Email") or "", answers.get("телефон") or answers.get("phone") or ""])
+    _phone = _extract_phone(_all_text) or "+7 (900) 123-45-67"
+    _email = _extract_email(_all_text) or answers.get("email") or answers.get("Email") or ""
+    if _email and "@" not in _email:
+        _email = ""
     return {
         "brand": name,
         "city": city_nom,
         "niche": niche,
         "kind": "landing",
         "tagline": adv_src[0][:38].rstrip(" .") if adv_src else "Работаем по договору",
-        "phone": "+7 (900) 123-45-67",
-        "email": "",
+        "phone": _phone,
+        "email": _email,
         "address": (f"{city_nom}, работаем по городу и области" if city_nom else ""),
         "nav": [{"label": "Услуги", "href": "#services"},
                 {"label": "Цены", "href": "#prices"},
@@ -413,9 +443,17 @@ def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
     company = a("Компания").strip() or a("О бизнесе").strip()[:40] or "Компания"
     position = a("Должность").strip() or "Менеджер"
     about_text = a("О бизнесе").strip() or f"{name} — {position} в {company}"
-    phone = "+7 (900) 123-45-67"
-    email = f"hello@{re.sub(r'[^a-z0-9]', '', name.lower())[:10] or 'example'}.ru"
     extras = a("Дополнительно").strip() or ""
+    # phone/email из анкеты если есть
+    _all_v = " ".join([about_text, extras, a("Услуги/товары"), answers.get("email") or "", answers.get("Email") or "", extras])
+    _found_phone = _extract_phone(_all_v)
+    phone = _found_phone or "+7 (900) 123-45-67"
+    _found_email = _extract_email(_all_v) or answers.get("email") or answers.get("Email") or ""
+    if _found_email and "@" in _found_email:
+        email = _found_email
+    else:
+        email = f"hello@{re.sub(r'[^a-z0-9]', '', name.lower())[:10] or 'example'}.ru"
+
     # ссылки: из поля products/ссылки — как в taplink (каждая с новой строки)
     links_raw = a("Услуги/товары") or a("Ссылки") or ""
     links = []

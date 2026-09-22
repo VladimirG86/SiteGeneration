@@ -253,6 +253,7 @@ def generate(body: GenerateIn, request: Request):
         "Услуги/товары": body.products,
         "Преимущества": body.advantages,
         "Дополнительно": body.extras,
+        "email": body.email or "",
     }
     # модерация (лёгкая, до LLM чтобы не тратить токены)
     combined = " ".join([body.name, body.about, body.products, body.advantages, body.extras])
