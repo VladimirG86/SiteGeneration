@@ -115,6 +115,7 @@ class GenerateIn(BaseModel):
     theme_mode: str = Field(default="light")
     accent: str = Field(default="purple")
     email: str = Field(default="", max_length=120)
+    kind: str = Field(default="landing", max_length=20)  # landing | taplink | vcard
 
 
 class LeadIn(BaseModel):
@@ -164,6 +165,7 @@ def config():
         "auth": auth_enabled(),
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
+        "kinds": ["landing", "taplink", "vcard"],
     }
 
 
@@ -200,6 +202,9 @@ def generate(body: GenerateIn, request: Request):
         body.theme_mode = "light"
     if body.accent not in design.ACCENTS:
         body.accent = "purple"
+    kind = (body.kind or "landing").strip().lower()
+    if kind not in ("landing", "taplink", "vcard"):
+        kind = "landing"
     answers = {
         "Название": body.name,
         "О бизнесе": body.about,
@@ -207,8 +212,8 @@ def generate(body: GenerateIn, request: Request):
         "Преимущества": body.advantages,
         "Дополнительно": body.extras,
     }
-    job_id = generator.start_job(answers, body.theme_mode, body.accent)
-    return {"job_id": job_id}
+    job_id = generator.start_job(answers, body.theme_mode, body.accent, site_kind=kind)
+    return {"job_id": job_id, "kind": kind}
 
 
 @app.post("/api/import")

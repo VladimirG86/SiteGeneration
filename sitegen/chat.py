@@ -20,12 +20,13 @@ import re
 # ---------------------------------------------------------------- схемы ----
 
 SECTION_TYPES = ("hero", "services", "advantages", "about", "process",
-                 "prices", "reviews", "faq", "contacts", "products")
+                 "prices", "reviews", "faq", "contacts", "products",
+                 "profile", "tap_links", "socials", "messengers", "qrcode", "vcard", "tap_text")
 
 ACCENTS = ("purple", "blue", "emerald", "orange", "rose", "teal")
 
 # Блоки-одиночки: второй такой же создать нельзя, upsert/add заменяет.
-SINGLETON_TYPES = ("hero", "contacts")
+SINGLETON_TYPES = ("hero", "contacts", "profile", "qrcode", "vcard")
 
 # Защита от «наплоди 20 прайсов»: однотипных блоков не больше трёх.
 MAX_SAME_TYPE = 3
@@ -40,6 +41,13 @@ SECTION_DOC = """- hero: {"type":"hero","title":"H1 до 70 симв","subtitle"
 - faq: {"type":"faq","kicker":"FAQ","title":"Частые вопросы","items":[{"q":"вопрос","a":"ответ"}]} (4-6)
 - contacts: {"type":"contacts","kicker":"Контакты","title":"...","text":"что будет после заявки","fields":["name","phone","comment"]}
 - products (каталог магазина): {"type":"products","kicker":"Каталог","title":"...","items":[{"name":"товар","price":"1 990 ₽ или от 990 ₽","desc":"1 предложение","badge":"Хит/Новинка/-20%/пусто","emoji":"один эмодзи"}]} (4-12)
+- profile (taplink/vcard): {"type":"profile","name":"Имя","subtitle":"роль/город","bio":"1-2 предложения","badges":["бейджи до 20 симв"],"avatar_url":"https://... или пусто"}
+- tap_links: {"type":"tap_links","kicker":"Ссылки","title":"заголовок","items":[{"title":"Текст кнопки","url":"https://...","subtitle":"пояснение","icon":"эмодзи","style":"filled|outline"}]} (4-12)
+- socials: {"type":"socials","kicker":"Соцсети","title":"...","items":[{"platform":"instagram|telegram|whatsapp|youtube|vk|tiktok","url":"https://...","label":"Instagram"}]} (3-10)
+- messengers: {"type":"messengers","kicker":"Связаться","title":"...","items":[{"platform":"whatsapp|telegram|viber|phone","url":"https://...","label":"WhatsApp","handle":"+7 ..."}]} (2-6)
+- qrcode: {"type":"qrcode","kicker":"QR-код","title":"...","text":"пояснение","data":"строка для QR (url или vcard)","note":"пометка"}
+- vcard: {"type":"vcard","kicker":"Контакты","title":"...","items":[{"label":"Телефон","value":"+7...","href":"tel:...","icon":"phone"},{"label":"Email","value":"hi@...","href":"mailto:..."}]} (3-6)
+- tap_text: {"type":"tap_text","kicker":"...","title":"...","text":"параграф до 300 симв"}
 
 У каждой секции есть стабильный "id" ("prices", "prices-2"). В upsert_section
 передавай "id", чтобы заменить конкретный блок; без "id" заменится первый
@@ -86,7 +94,8 @@ EDITOR_RULES = """Ты — ИИ-редактор сайтов платформы
 """
 
 MAX_ITEMS = {"services": 8, "advantages": 6, "about": 5, "process": 5,
-             "prices": 4, "reviews": 6, "faq": 7, "products": 12}
+             "prices": 4, "reviews": 6, "faq": 7, "products": 12,
+             "tap_links": 12, "socials": 10, "messengers": 6, "vcard": 6, "tap_text": 5}
 
 
 def _s(v, maxlen):
@@ -158,11 +167,64 @@ def sanitize_section(s: dict) -> dict | None:
                          "desc": _s(x.get("desc"), 200), "badge": _s(x.get("badge"), 16),
                          "emoji": (_s(x.get("emoji"), 4) or "🛍️") if isinstance(x, dict) else "🛍️"}
                         for x in items if isinstance(x, dict) and _s(x.get("name"), 70)][:MAX_ITEMS[t]]
+    if t == "profile":
+        for k in ("name", "subtitle", "bio", "avatar_url"):
+            if s.get(k):
+                out[k] = _s(s[k], 140)
+        out["badges"] = [_s(b, 20) for b in (s.get("badges") or [])[:4] if _s(b, 20)]
+        if not (out.get("name") or out.get("bio")):
+            return None
+    if t == "tap_links":
+        out["items"] = [{"title": _s(x.get("title") or x.get("label"), 60),
+                         "url": _s(x.get("url") or x.get("href"), 300) or "#",
+                         "subtitle": _s(x.get("subtitle") or x.get("desc"), 80),
+                         "icon": _s(x.get("icon"), 4) or "🔗",
+                         "style": "filled" if _s(x.get("style"), 10) != "outline" else "outline"}
+                        for x in items if isinstance(x, dict) and (_s(x.get("title") or x.get("label"), 60))][:MAX_ITEMS[t]]
+        if not out["items"]:
+            return None
+    if t == "socials":
+        out["items"] = [{"platform": _s(x.get("platform") or x.get("label"), 20).lower(),
+                         "url": _s(x.get("url"), 300) or "#",
+                         "label": _s(x.get("label"), 24) or _s(x.get("platform"), 24)}
+                        for x in items if isinstance(x, dict) and _s(x.get("url"), 300)][:MAX_ITEMS[t]]
+        if not out["items"]:
+            return None
+    if t == "messengers":
+        out["items"] = [{"platform": _s(x.get("platform"), 20).lower() or "whatsapp",
+                         "url": _s(x.get("url"), 300) or "#",
+                         "label": _s(x.get("label"), 24) or "Написать",
+                         "handle": _s(x.get("handle"), 40)}
+                        for x in items if isinstance(x, dict)][:MAX_ITEMS[t]]
+        if not out["items"]:
+            return None
+    if t == "qrcode":
+        for k in ("data", "url", "note"):
+            if s.get(k):
+                out[k] = _s(s[k], 400)
+        # data required
+        if not (out.get("data") or out.get("url")):
+            out["data"] = "https://example.com"
+    if t == "vcard":
+        out["items"] = [{"label": _s(x.get("label"), 30) or "Контакт",
+                         "value": _s(x.get("value") or x.get("text"), 80) or _s(x.get("url"), 80),
+                         "href": _s(x.get("href") or x.get("url"), 300),
+                         "icon": _s(x.get("icon"), 20) or "phone"}
+                        for x in items if isinstance(x, dict)][:MAX_ITEMS[t]]
+        if not out["items"]:
+            return None
+    if t == "tap_text":
+        if s.get("text") or s.get("content"):
+            out["text"] = _s(s.get("text") or s.get("content"), 600)
+        # allow empty? require text
+        if not out.get("text"):
+            return None
     # секция без обязательного контента — бракуем (иначе рендерер
     # нарисует пустой блок с одним заголовком)
-    if t not in ("hero", "contacts"):
+    if t not in ("hero", "contacts", "qrcode", "tap_text"):
         has_content = bool(out.get("items") or out.get("steps")
-                           or out.get("paragraphs") or out.get("bullets"))
+                           or out.get("paragraphs") or out.get("bullets")
+                           or out.get("name") or out.get("bio"))
         if not has_content:
             return None
     return out
@@ -356,6 +418,9 @@ def normalize_site(site: dict) -> dict:
         "phone": _s(site.get("phone"), 30),
         "email": _s(site.get("email"), 60),
         "address": _s(site.get("address"), 120),
+        "kind": _s(site.get("kind"), 20).lower() if _s(site.get("kind"), 20).lower() in ("landing","taplink","vcard") else "landing",
+        "avatar_url": _s(site.get("avatar_url"), 300),
+        "avatar_image": bool(site.get("avatar_image")),
         "theme": {
             "mode": (site.get("theme") or {}).get("mode") if isinstance(site.get("theme"), dict) else None,
             "accent": (site.get("theme") or {}).get("accent") if isinstance(site.get("theme"), dict) else None,

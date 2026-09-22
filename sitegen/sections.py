@@ -326,6 +326,178 @@ def products(site, s, cart_enabled=False):
 </div></section>"""
 
 
+# -------------------------- taplink / vcard ----------------------------
+
+_SOCIAL_LABELS = {
+    "instagram": "IG", "telegram": "TG", "whatsapp": "WA", "youtube": "YT",
+    "vk": "VK", "tiktok": "TT", "facebook": "FB", "twitter": "X", "linkedin": "IN",
+    "phone": "☎", "email": "✉", "website": "🌐"
+}
+_MSGR_COLORS = {"whatsapp": "wa", "telegram": "tg", "viber": "vb", "phone": "", "email": ""}
+
+def profile(site, s) -> str:
+    name = esc(s.get("name") or site.get("brand") or "Имя")
+    subtitle = esc(s.get("subtitle") or site.get("tagline") or "")
+    bio = esc(s.get("bio") or "")
+    badges = "".join(f'<span>{esc(b)}</span>' for b in (s.get("badges") or [])[:4])
+    badges_html = f'<div class="tap-badges">{badges}</div>' if badges else ""
+    # avatar
+    job = site.get("_job")
+    avatar_html = ""
+    initial = esc(name.strip()[:1].upper() or "•")
+    if site.get("avatar_image") and job:
+        try:
+            from images import data_uri
+            uri = data_uri(job, "avatar.webp")
+            if uri:
+                avatar_html = f'<div class="tap-avatar"><img src="{uri}" alt="">{initial}</div>'
+            else:
+                avatar_html = f'<div class="tap-avatar">{initial}</div>'
+        except Exception:
+            avatar_html = f'<div class="tap-avatar">{initial}</div>'
+    else:
+        # check s.avatar_url?
+        av_url = s.get("avatar_url") or site.get("avatar_url")
+        if av_url and av_url.startswith("http"):
+            avatar_html = f'<div class="tap-avatar"><img src="{esc(av_url)}" alt=""></div>'
+        else:
+            avatar_html = f'<div class="tap-avatar">{initial}</div>'
+    return f"""
+<div class="tap-profile">
+  {avatar_html}
+  <div class="tap-name">{name}</div>
+  {f'<div class="tap-subtitle">{subtitle}</div>' if subtitle else ''}
+  {f'<div class="tap-bio">{bio}</div>' if bio else ''}
+  {badges_html}
+</div>"""
+
+def tap_links(site, s) -> str:
+    kicker = esc(s.get("kicker") or "")
+    title = esc(s.get("title") or "")
+    items = s.get("items") or []
+    head = ""
+    if kicker or title:
+        kicker_html = f'<div class="kicker" style="margin-bottom:8px">{kicker}</div>' if kicker else ""
+        title_html = f'<h2 style="font-size:18px">{title}</h2>' if title else ""
+        head = f'<div style="text-align:center;margin-top:18px">{kicker_html}{title_html}</div>'
+    links = []
+    for it in items[:12]:
+        t = esc(it.get("title") or it.get("label") or "Ссылка")
+        url = esc(it.get("url") or it.get("href") or "#")
+        sub = esc(it.get("subtitle") or it.get("desc") or "")
+        icon = esc((it.get("icon") or "🔗")[:4])
+        style = "filled" if (it.get("style") or "filled") == "filled" else ""
+        sub_html = f'<span class="tap-link-sub">{sub}</span>' if sub else ""
+        links.append(f'<a class="tap-link {style}" href="{url}" target="_blank" rel="noopener"><span class="tap-link-ico">{icon}</span><span><span class="tap-link-title">{t}</span>{sub_html}</span><span class="tap-link-arrow">↗</span></a>')
+    return f'{head}<div class="tap-links">{"".join(links)}</div>'
+
+def socials(site, s) -> str:
+    kicker = esc(s.get("kicker") or "")
+    title = esc(s.get("title") or "")
+    head = ""
+    if kicker or title:
+        kicker_html = f'<div class="kicker" style="margin-bottom:8px">{kicker}</div>' if kicker else ""
+        title_html = f'<div style="font-weight:700">{title}</div>' if title else ""
+        head = f'<div style="text-align:center;margin-top:18px">{kicker_html}{title_html}</div>'
+    items = s.get("items") or []
+    btns = []
+    for it in items[:10]:
+        platform = (it.get("platform") or it.get("label") or "").lower()
+        url = esc(it.get("url") or "#")
+        label = _SOCIAL_LABELS.get(platform, esc(platform[:2].upper() or "•"))
+        btns.append(f'<a class="social-btn" href="{url}" target="_blank" rel="noopener" title="{esc(it.get("label") or platform)}">{label}</a>')
+    return f'{head}<div class="socials">{"".join(btns)}</div>'
+
+def messengers(site, s) -> str:
+    kicker = esc(s.get("kicker") or "")
+    title = esc(s.get("title") or "")
+    head = ""
+    if kicker or title:
+        kicker_html = f'<div class="kicker" style="margin-bottom:8px">{kicker}</div>' if kicker else ""
+        title_html = f'<div style="font-weight:700">{title}</div>' if title else ""
+        head = f'<div style="text-align:center;margin-top:18px">{kicker_html}{title_html}</div>'
+    items = s.get("items") or []
+    btns = []
+    for it in items[:6]:
+        platform = (it.get("platform") or "").lower()
+        label = esc(it.get("label") or platform.title() or "Связаться")
+        url = esc(it.get("url") or "#")
+        handle = esc(it.get("handle") or "")
+        cls = _MSGR_COLORS.get(platform, "")
+        ico = {"whatsapp": "💬", "telegram": "✈️", "viber": "📞", "phone": "📞"}.get(platform, "💬")
+        handle_html = f'<span style="margin-left:auto;opacity:.8;font-weight:500">{handle}</span>' if handle else ""
+        btns.append(f'<a class="msgr-btn {cls}" href="{url}" target="_blank" rel="noopener"><span>{ico}</span><span>{label}</span>{handle_html}</a>')
+    return f'{head}<div class="messengers">{"".join(btns)}</div>'
+
+def qrcode(site, s) -> str:
+    kicker = esc(s.get("kicker") or "QR-код")
+    title = esc(s.get("title") or "Сохраните контакт")
+    text = esc(s.get("text") or "Наведите камеру, чтобы открыть")
+    data = s.get("data") or s.get("url") or site.get("phone") or site.get("brand") or "https://example.com"
+    import urllib.parse
+    qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + urllib.parse.quote(str(data)[:400], safe="")
+    note = esc(s.get("note") or "")
+    brand_esc = esc(site.get('brand') or '')
+    phone_esc = esc(site.get('phone') or '')
+    email_esc = esc(site.get('email') or '')
+    note_html = f'<div style="color:var(--muted);font-size:13px;margin-top:6px">{note}</div>' if note else ''
+    return f"""
+<div class="qr-card">
+  <div class="kicker">{kicker}</div>
+  <div style="font-weight:800;font-size:18px;margin-top:8px">{title}</div>
+  <div class="qr-img"><img src="{qr_url}" alt="QR"></div>
+  <div style="color:var(--muted);font-size:14px">{text}</div>
+  {note_html}
+  <div class="vcard-actions">
+    <a class="btn" href="#" onclick="try{{var v=`BEGIN:VCARD\\nVERSION:3.0\\nFN:{brand_esc}\\nTEL:{phone_esc}\\nEMAIL:{email_esc}\\nEND:VCARD`;var b=new Blob([v],{{type:'text/vcard'}});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download='contact.vcf';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}}catch(e){{}};return false;">Сохранить контакт</a>
+    <a class="btn ghost" href="#" onclick="if(navigator.share){{navigator.share({{title:document.title,url:location.href}})}}else{{navigator.clipboard.writeText(location.href);alert('Ссылка скопирована')}};return false;">Поделиться</a>
+  </div>
+</div>"""
+
+def vcard_contacts(site, s) -> str:
+    kicker = esc(s.get("kicker") or "Контакты")
+    title = esc(s.get("title") or "Как связаться")
+    items = s.get("items") or []
+    rows = []
+    for it in items[:6]:
+        label = esc(it.get("label") or "")
+        value = esc(it.get("value") or it.get("text") or "")
+        href = esc(it.get("href") or it.get("url") or "")
+        icon_name = it.get("icon") or ("phone" if "тел" in label.lower() else "chat" if "mail" in label.lower() else "map")
+        ic = icon(icon_name) if icon_name in ICONS else esc(icon_name[:2])
+        # if icon is svg, wrap
+        if "<svg" in ic:
+            ic_html = f'<span class="ic">{ic}</span>'
+        else:
+            ic_html = f'<span class="ic" style="font-size:18px">{ic}</span>'
+        # make value clickable if href
+        val_html = f'<a href="{href}">{value}</a>' if href else value
+        rows.append(f'<div class="vcard-contact">{ic_html}<span><b style="display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">{label}</b><span style="font-weight:600">{val_html}</span></span></div>')
+    head = f'<div style="text-align:center"><div class="kicker">{kicker}</div><div style="font-weight:800;font-size:18px;margin-top:8px">{title}</div></div>' if (kicker or title) else ""
+    actions = s.get("actions") or ["call","share"]
+    act_btns = ""
+    if actions:
+        btns = []
+        if "call" in actions and site.get("phone"):
+            btns.append(f'<a class="btn" href="tel:{esc(site.get("phone"))}">Позвонить</a>')
+        if "share" in actions:
+            btns.append(f'<a class="btn ghost" href="#" onclick="if(navigator.share){{navigator.share({{title:document.title,url:location.href}})}}else{{navigator.clipboard.writeText(location.href);alert(\'Ссылка скопирована\')}};return false;">Поделиться</a>')
+        if btns:
+            act_btns = f'<div class="vcard-actions">{"".join(btns)}</div>'
+    return f'{head}<div style="margin-top:16px">{"".join(rows)}</div>{act_btns}'
+
+def tap_text(site, s) -> str:
+    text = esc(s.get("text") or s.get("content") or "")
+    title = esc(s.get("title") or "")
+    kicker = esc(s.get("kicker") or "")
+    head = ""
+    if kicker:
+        head += f'<div class="kicker">{kicker}</div>'
+    if title:
+        head += f'<div style="font-weight:800;font-size:18px;margin-top:8px">{title}</div>'
+    text_html = f'<div style="margin-top:8px">{text}</div>' if text else ""
+    return f'<div class="tap-text">{head}{text_html}</div>'
+
 def cart_markup(site, site_id: str) -> str:
     """Плавающая корзина + панель оформления (для режима магазина)."""
     return f"""
@@ -460,6 +632,13 @@ RENDERERS = {
     "prices": prices,
     "reviews": reviews,
     "faq": faq,
+    "profile": profile,
+    "tap_links": tap_links,
+    "socials": socials,
+    "messengers": messengers,
+    "qrcode": qrcode,
+    "vcard": vcard_contacts,
+    "tap_text": tap_text,
 }
 
 
@@ -470,7 +649,72 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
     theme_mode = theme_mode or theme.get("mode") or "light"
     accent = accent or theme.get("accent") or "purple"
     cart_on = bool((site.get("features") or {}).get("cart"))
+    kind = (site.get("kind") or "landing").lower()
     site["_job"] = site_id  # для подстановки изображений (data URI) в секции
+
+    # taplink / vcard — узкая центрированная страница
+    if kind in ("taplink", "vcard"):
+        inner_parts = []
+        for s in site.get("sections", []):
+            t = s.get("type")
+            if t == "contacts":
+                part = contacts(site, s, site_id)
+                # contacts for taplink needs tap-wrap styling — wrap extra div
+                part = f'<div style="margin-top:18px">{part}</div>'
+            elif t == "products":
+                part = products(site, s, cart_enabled=cart_on)
+            elif t in RENDERERS:
+                part = RENDERERS[t](site, s)
+            else:
+                continue
+            inner_parts.append(part)
+        body_inner = "".join(inner_parts) or '<div class="tap-text">Контент пока пуст — добавьте ссылки в редакторе.</div>'
+        # minimal footer inside tap-wrap
+        foot = f'<div style="text-align:center;margin-top:28px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:13px">© 2026 {esc(site.get("brand") or "")} · <a href="#" onclick="return false" style="color:var(--muted)">СБОРКА</a></div>'
+        body_html = f'<div class="tap-page"><div class="tap-wrap">{"".join(inner_parts)}{foot}</div></div>'
+        if cart_on:
+            body_html += cart_markup(site, site_id)
+        brand = esc(site.get("brand") or "Сайт")
+        subtitle = ""
+        for s in site.get("sections", []):
+            if s.get("type") in ("profile", "tap_links", "tap_text"):
+                subtitle = esc(s.get("bio") or s.get("title") or "")[:160]
+                if subtitle:
+                    break
+        title_tag = f"{brand} — {subtitle}" if subtitle and not subtitle.lower().startswith(brand.lower()) else brand
+        css = build_css(theme_mode, accent)
+        lead_js = """
+<script>
+(function(){
+  var f = document.getElementById('lead-form');
+  if (!f) return;
+  f.addEventListener('submit', async function(e){
+    e.preventDefault();
+    var data = {};
+    new FormData(f).forEach(function(v,k){ data[k]=v; });
+    try { await fetch('/api/lead/' + f.dataset.site, {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+    } catch(err) {}
+    f.querySelectorAll('label,button').forEach(function(el){el.style.display='none'});
+    document.getElementById('form-ok').style.display='block';
+  });
+})();
+</script>"""
+        cart_js = CART_JS.replace("API_LEAD_URL", f"/api/lead/{esc(site_id)}") if cart_on else ""
+        page = f"""<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title_tag}</title>
+<meta name="description" content="{subtitle}">
+{FONTS_LINK}
+<style>{css}</style>
+</head><body>
+{body_html}
+{lead_js}
+{cart_js}
+</body></html>"""
+        site.pop("_job", None)
+        return page
 
     body = [header(site)]
     seen = {}

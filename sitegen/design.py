@@ -196,6 +196,42 @@ def build_css(mode: str, accent: str) -> str:
     .prod-row{{display:flex;align-items:center;margin:12px 0 14px}}
     .prod .btn{{width:100%;padding:11px 20px;font-size:14.5px}}
 
+    /* ---------- taplink / vcard ---------- */
+    .tap-page{{background:var(--bg);min-height:100vh}}
+    .tap-wrap{{max-width:520px;margin:0 auto;padding:28px 18px 40px}}
+    .tap-profile{{text-align:center;padding:28px 20px 10px}}
+    .tap-avatar{{width:96px;height:96px;border-radius:50%;margin:0 auto 14px;overflow:hidden;background:linear-gradient(135deg,var(--accent),var(--grad2));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:38px;position:relative}}
+    .tap-avatar img{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}
+    .tap-name{{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}}
+    .tap-subtitle{{font-size:14.5px;color:var(--muted);margin-bottom:10px}}
+    .tap-bio{{font-size:15px;color:var(--muted);line-height:1.5;max-width:420px;margin:0 auto}}
+    .tap-badges{{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}}
+    .tap-badges span{{font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent-dark)}}
+    .tap-links{{display:grid;gap:12px;margin-top:22px}}
+    .tap-link{{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:14px;border:1px solid var(--border);background:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.06);transition:transform .12s ease,box-shadow .12s}}
+    .tap-link.filled{{background:linear-gradient(120deg,var(--accent),var(--grad2));color:#fff;border-color:transparent;box-shadow:0 10px 22px color-mix(in srgb,var(--accent) 28%,transparent)}}
+    .tap-link:hover{{transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.10)}}
+    .tap-link-ico{{width:42px;height:42px;border-radius:11px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;flex:0 0 auto}}
+    .tap-link.filled .tap-link-ico{{background:rgba(255,255,255,.22);color:#fff}}
+    .tap-link-title{{font-weight:700;font-size:15.5px;line-height:1.2}}
+    .tap-link-sub{{font-size:13px;opacity:.8;margin-top:2px}}
+    .tap-link-arrow{{margin-left:auto;opacity:.5}}
+    .socials{{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}}
+    .social-btn{{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:20px;box-shadow:0 6px 18px rgba(0,0,0,.06);transition:transform .12s}}
+    .social-btn:hover{{transform:translateY(-2px);border-color:var(--accent);color:var(--accent)}}
+    .messengers{{display:grid;gap:10px;margin-top:18px}}
+    .msgr-btn{{display:flex;align-items:center;gap:12px;padding:14px 18px;border-radius:14px;background:var(--surface);border:1px solid var(--border);font-weight:700}}
+    .msgr-btn.wa{{background:#25D366;color:#fff;border-color:transparent}}
+    .msgr-btn.tg{{background:#2AABEE;color:#fff;border-color:transparent}}
+    .msgr-btn.vb{{background:#7360F2;color:#fff;border-color:transparent}}
+    .qr-card{{text-align:center;margin-top:24px;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow)}}
+    .qr-img{{width:220px;height:220px;margin:14px auto;background:#fff;border-radius:14px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.08)}}
+    .qr-img img{{width:100%;height:100%;object-fit:contain}}
+    .vcard-actions{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}}
+    .vcard-contact{{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:var(--surface2);border:1px solid var(--border);margin-top:10px}}
+    .vcard-contact .ic{{width:40px;height:40px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center}}
+    .tap-text{{margin-top:20px;padding:18px;background:var(--surface);border:1px solid var(--border);border-radius:14px;color:var(--muted);font-size:15px;line-height:1.6}}
+
     /* ---------- cart ---------- */
     .cart-fab{{position:fixed;right:22px;bottom:22px;z-index:60;width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;
       background:linear-gradient(120deg,var(--accent),var(--grad2));color:#fff;display:flex;align-items:center;justify-content:center;

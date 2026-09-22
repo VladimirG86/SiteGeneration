@@ -7,6 +7,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const LS_KEY = 'sborka_state_v1';
 const state = {
   step: -1, // -1 = welcome
+  kind: 'landing', // landing | taplink | vcard
   answers: { name: '', about: '', products: '', advantages: '', extras: '' },
   theme: { mode: 'light', accent: 'purple' },
   email: '',
@@ -25,7 +26,7 @@ let CFG = { llm: false, accents: [] };
 function saveState() {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
-      answers: state.answers, theme: state.theme, email: state.email,
+      kind: state.kind, answers: state.answers, theme: state.theme, email: state.email,
       agree1: state.agree1, agree2: state.agree2, chips: state.chips,
     }));
   } catch (e) { /* private mode — ок */ }
@@ -35,6 +36,7 @@ function restoreState() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
+    if (d.kind) state.kind = d.kind;
     Object.assign(state.answers, d.answers || {});
     Object.assign(state.theme, d.theme || {});
     state.email = d.email || '';
@@ -145,7 +147,9 @@ async function fetchConfig() {
 }
 
 function bindButtons() {
-  $('#btn-start').addEventListener('click', () => goStep(0));
+  $('#btn-start').addEventListener('click', () => startKind('landing'));
+  const tl = $('#btn-taplink'); if (tl) tl.addEventListener('click', () => startKind('taplink'));
+  const vc = $('#btn-vcard'); if (vc) vc.addEventListener('click', () => startKind('vcard'));
   $('#btn-import-start').addEventListener('click', () => openImport());
   $('#btn-import').addEventListener('click', startImport);
   $('#btn-import-back').addEventListener('click', () => showScreen('welcome'));
@@ -218,6 +222,14 @@ function goHome() {
   state.step = -1;
   return false;
 }
+function startKind(kind) {
+  state.kind = kind || 'landing';
+  state.visited = 0;
+  state.step = 0;
+  saveState();
+  state.chips = null;
+  goStep(0);
+}
 
 /* ------------------------------------------------------------ stepper ---- */
 function renderStepper() {
@@ -252,33 +264,70 @@ function renderStep() {
   const body = $('#step-body');
   body.innerHTML = '';
 
+  // динамические заголовки для taplink/vcard
+  let title = def.title, sub = def.sub;
+  if (state.kind === 'taplink') {
+    if (def.id === 'about') { title = 'Кто вы'; sub = 'Как вас называть и чем занимаетесь — это шапка вашей мультиссылки.'; }
+    if (def.id === 'products') { title = 'Ваши ссылки'; sub = 'Каждая ссылка — с новой строки. Формат: Название — https://... (можно и без ссылки, мы подставим).'; }
+    if (def.id === 'advantages') { title = 'Соцсети и мессенджеры'; sub = 'Перечислите соцсети или мессенджеры — они появятся кнопками. Можно пропустить.'; }
+    if (def.id === 'extras') { title = 'Текст и пожелания'; sub = 'Короткий текст под ссылками — призыв или пояснение.'; }
+  }
+  if (state.kind === 'vcard') {
+    if (def.id === 'about') { title = 'Ваша визитка'; sub = 'Имя, должность и компания — это лицо вашей QR-визитки.'; }
+    if (def.id === 'products') { title = 'Чем занимаетесь'; sub = 'Коротко — для блока о вас. Можно и ссылку на сайт.'; }
+    if (def.id === 'advantages') { title = 'Контакты и соцсети'; sub = 'Телефон, email, соцсети — покажите как с вами связаться.'; }
+    if (def.id === 'extras') { title = 'Дополнительно'; sub = 'Адрес, часы, пожелания по стилю.'; }
+  }
+
   const head = document.createElement('div');
   head.className = 'step-head';
   head.innerHTML = `
     <div class="step-icon">${I[def.icon]}</div>
-    <h2>${def.title}</h2>
+    <h2>${title}</h2>
     ${def.help ? `<button class="help-link">${I.help} Что написать?</button>` : ''}`;
   body.appendChild(head);
   if (def.help) head.querySelector('.help-link').addEventListener('click', () => openModal(def.help));
-  if (def.sub) {
+  if (sub) {
     const p = document.createElement('p');
     p.className = 'step-sub';
-    p.textContent = def.sub;
+    p.textContent = sub;
     body.appendChild(p);
+  }
+  // бейдж типа
+  if (state.kind !== 'landing') {
+    const badge = document.createElement('div');
+    badge.style.cssText = 'display:inline-block;margin-bottom:10px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent)';
+    badge.textContent = state.kind === 'taplink' ? 'Taplink — мультиссылка' : 'QR-визитка — myqrcards';
+    body.appendChild(badge);
   }
 
   const a = state.answers;
   if (def.id === 'about') {
-    body.appendChild(field('Название компании', 'name', 'text', 'Например, кофейня «Brewhaus»', true));
-    body.appendChild(field('О бизнеса', 'about', 'textarea', 'Например: кофейня в центре Москвы. Работаем с 2019 года, своя обжарка, завтраки и кофе с собой.', true, 4));
+    const nameLabel = state.kind === 'landing' ? 'Название компании' : 'Ваше имя / бренд';
+    const namePh = state.kind === 'landing' ? 'Например, кофейня «Brewhaus»' : 'Например, Иван Петров или Студия «Свет»';
+    const aboutLabel = state.kind === 'landing' ? 'О бизнеса' : 'О себе / проекте';
+    const aboutPh = state.kind === 'landing' ? 'Например: кофейня в центре Москвы. Работаем с 2019 года, своя обжарка, завтраки и кофе с собой.' : (state.kind === 'taplink' ? 'Например: Фотограф в Казани, снимаю свадьбы и портреты. Напишите — отвечаю быстро.' : 'Например: Иван Петров — дизайнер в Студии Свет, делаю сайты и брендинг.');
+    body.appendChild(field(nameLabel, 'name', 'text', namePh, true));
+    body.appendChild(field(aboutLabel, 'about', 'textarea', aboutPh, true, 4));
     autoFocus();
   }
 
   if (def.id === 'products' || def.id === 'advantages' || def.id === 'extras') {
     const key = def.id === 'products' ? 'products' : def.id === 'advantages' ? 'advantages' : 'extras';
-    const label = def.id === 'products' ? 'Услуги или товары' : def.id === 'advantages' ? 'Ваши преимущества' : 'Дополнительно';
-    body.appendChild(field(label, key, 'textarea', def.id === 'products' ? 'Перечислите услуги или товары — каждый с новой строки' : '', def.required, def.id === 'products' ? 6 : 4));
-    renderChips(body, key);
+    let label = def.id === 'products' ? 'Услуги или товары' : def.id === 'advantages' ? 'Ваши преимущества' : 'Дополнительно';
+    let ph = def.id === 'products' ? 'Перечислите услуги или товары — каждый с новой строки' : '';
+    if (state.kind === 'taplink') {
+      if (key === 'products') { label = 'Ссылки (каждая с новой строки)'; ph = 'Портфолио — https://example.com\nЗапись — https://t.me/example\nМагазин — https://shop.example.com'; }
+      if (key === 'advantages') { label = 'Соцсети / мессенджеры'; ph = 'Instagram — https://instagram.com/...\nTelegram — https://t.me/...'; }
+      if (key === 'extras') { label = 'Текст под ссылками'; ph = 'Напишите — отвечаю в течение часа 👆'; }
+    }
+    if (state.kind === 'vcard') {
+      if (key === 'products') { label = 'О себе / услуги'; ph = 'Дизайн сайтов и брендинг для малого бизнеса'; }
+      if (key === 'advantages') { label = 'Телефон / email / соцсети'; ph = '+7 900 123-45-67\nhello@example.ru\nhttps://t.me/example'; }
+    }
+    body.appendChild(field(label, key, 'textarea', ph, def.required, def.id === 'products' ? 6 : 4));
+    // chips only for landing
+    if (state.kind === 'landing') renderChips(body, key);
     autoFocus();
   }
 
@@ -793,7 +842,7 @@ async function beginGeneration() {
         name: state.answers.name, about: state.answers.about,
         products: state.answers.products, advantages: state.answers.advantages,
         extras: state.answers.extras, theme_mode: state.theme.mode,
-        accent: state.theme.accent, email: state.email,
+        accent: state.theme.accent, email: state.email, kind: state.kind || 'landing',
       }),
     });
     jobId = (await r.json()).job_id;

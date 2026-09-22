@@ -208,6 +208,24 @@ def build_chips_messages(answers: dict):
     ]
 
 
+def build_taplink_messages(answers: dict, theme_mode: str, accent_name: str, accent_hex: str):
+    answers_text = "\n".join(f"- {k}: {v}" for k, v in answers.items() if v)
+    guide = "НИША: мультиссылка Taplink. Тон живой, дружелюбный, коротко. Делаем аватар-профиль + кликабельные ссылки (каждая — отдельная кнопка). Обязательно 5-8 ссылок с понятными названиями и иконками. Соцсети — 4 штуки. Мессенджеры — WhatsApp/Telegram/Звонок."
+    return [
+        {"role": "system", "content": "Ты — копирайтер Taplink. Отвечай ТОЛЬКО валидным JSON по схеме Taplink, без markdown. Пиши по-русски, обращение на «вы», конкретно."},
+        {"role": "user", "content": f"Сделай Taplink страницу (мультиссылку) как на taplink.ru. Тема: {theme_mode}, акцент {accent_name} ({accent_hex}).\n\nАНКЕТА:\n{answers_text}\n\n{guide}\n\nСХЕМА JSON:\n{TAPLINK_SCHEMA}"},
+    ]
+
+
+def build_vcard_messages(answers: dict, theme_mode: str, accent_name: str, accent_hex: str):
+    answers_text = "\n".join(f"- {k}: {v}" for k, v in answers.items() if v)
+    guide = "НИША: QR-визитка MyQRcards. Тон деловой, лаконичный. Делаем профиль + QR-код (vCard) + контакты (тел/email/компания/адрес) + соцсети. QR data — vCard строка с FN/TEL/EMAIL."
+    return [
+        {"role": "system", "content": "Ты — копирайтер QR-визиток. Отвечай ТОЛЬКО валидным JSON по схеме VCard, без markdown. Пиши по-русски."},
+        {"role": "user", "content": f"Сделай QR-визитку как на myqrcards.com. Тема: {theme_mode}, акцент {accent_name} ({accent_hex}).\n\nАНКЕТА:\n{answers_text}\n\n{guide}\n\nСХЕМА JSON:\n{VCARD_SCHEMA}"},
+    ]
+
+
 IMPORT_RULES = """Ты — ИИ-импортёр сайтов платформы СБОРКА. Тебе дали выгрузку с чужого сайта
 (заголовки, тексты, контакты). Твоя задача — перенести его в нашу JSON-схему,
 сохранив смысл, структуру и контакты оригинала, но переписав тексты по нашим
@@ -239,6 +257,39 @@ def build_import_messages(digest: dict, theme_mode: str, accent_name: str, accen
         {"role": "user", "content": user},
     ]
 
+
+TAPLINK_SCHEMA = """{
+  "brand": "Имя человека/проекта",
+  "tagline": "короткий слоган до 40 симв",
+  "phone": "+7 (XXX) XXX-XX-XX",
+  "email": "",
+  "address": "",
+  "kind": "taplink",
+  "sections": [
+    {"type":"profile","name":"Имя","subtitle":"роль · город","bio":"1-2 предложения о себе","badges":["бейджи"]},
+    {"type":"tap_links","kicker":"Ссылки","title":"Мои ссылки","items":[{"title":"Текст кнопки","url":"https://...","subtitle":"пояснение","icon":"🔗","style":"filled"}]},
+    {"type":"socials","kicker":"Соцсети","title":"Где я есть","items":[{"platform":"instagram","url":"https://...","label":"Instagram"}]},
+    {"type":"messengers","kicker":"Связаться","title":"Напишите мне","items":[{"platform":"whatsapp","url":"https://wa.me/...","label":"WhatsApp","handle":"+7 ..."}]},
+    {"type":"tap_text","kicker":"","title":"","text":"текст до 300 симв"},
+    {"type":"contacts","kicker":"Заявка","title":"Оставьте контакты","text":"что будет после","fields":["name","phone","comment"]}
+  ]
+}"""
+
+VCARD_SCHEMA = """{
+  "brand": "Имя человека",
+  "tagline": "Должность · Компания",
+  "phone": "+7 (XXX) XXX-XX-XX",
+  "email": "email",
+  "address": "адрес",
+  "kind": "vcard",
+  "sections": [
+    {"type":"profile","name":"Имя","subtitle":"Должность · Компания","bio":"1-2 предложения","badges":["QR-визитка"]},
+    {"type":"qrcode","kicker":"QR-код","title":"Сохраните контакт","text":"Наведите камеру","data":"vCard или https://...","note":"пометка"},
+    {"type":"vcard","kicker":"Контакты","title":"Как связаться","items":[{"label":"Телефон","value":"+7...","href":"tel:...","icon":"phone"}]},
+    {"type":"socials","kicker":"Соцсети","title":"Я в соцсетях","items":[{"platform":"instagram","url":"https://...","label":"Instagram"}]},
+    {"type":"tap_text","kicker":"","title":"","text":"текст"}
+  ]
+}"""
 
 JUDGE_RULES = """Ты — строгий редактор лендингов. Оцени сайт (JSON) по трём шкалам 1–5:
 concreteness — цифры, факты, город вместо воды; no_fluff — отсутствие клише
