@@ -196,6 +196,57 @@
     </div>
   </section>
 
+  <!-- CANVAS TAB -->
+  <section id="tab-canvas" style="display:none">
+    <div class="card-panel">
+      <div class="head"><h3>Мои канвасы (free canvas)</h3><a href="/canvas" class="btn-grad small" target="_blank">+ Новый канвас</a> <button class="btn-ghost small" onclick="refreshCanvases()">Обновить</button></div>
+      <div id="canvas-list" style="padding:16px;display:grid;gap:10px"></div>
+      <div class="hint2" style="padding:0 16px 14px">Канвас — свободное поле как в Tilda/Wix. Экспорт HTML/ZIP, публикация Nelvi/S3/WP. Список берётся из <code>GET /api/canvases</code>. Нажми «Открыть» чтобы редактировать.</div>
+    </div>
+  </section>
+  <script>
+  async function refreshCanvases(){
+    const box=document.getElementById('canvas-list');
+    if(!box) return;
+    box.innerHTML='<div class="hint2">Загружаем…</div>';
+    try{
+      const r=await fetch('/api/canvases');
+      const j=await r.json();
+      const cs=j.canvases||[];
+      if(!cs.length){ box.innerHTML='<div class="hint2">Пока пусто — создай первый канвас на <a href="/canvas">/canvas</a></div>'; return; }
+      box.innerHTML=cs.map(c=>'<div style="display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #E7E5F0;border-radius:10px;background:#FAF9F7"><b style="font-size:13px">'+c.id+'</b><span class="hint2">'+c.blocks+' блоков</span><span style="margin-left:auto;display:flex;gap:6px"><a class="btn-ghost small" href="/canvas?id='+encodeURIComponent(c.id)+'">Открыть</a><a class="btn-ghost small" href="/api/canvas/'+encodeURIComponent(c.id)+'/zip">ZIP</a><a class="btn-ghost small" href="/api/site/'+encodeURIComponent(c.id)+'" target="_blank">Сайт</a></span></div>').join('');
+    }catch(e){ box.innerHTML='<div class="hint2">Ошибка: '+e.message+'</div>'; }
+  }
+  document.addEventListener('DOMContentLoaded', ()=>{
+    // add tab button if missing
+    const tabs=document.querySelector('.nav-tabs');
+    if(tabs && !tabs.querySelector('[data-tab="canvas"]')){
+      const b=document.createElement('button'); b.dataset.tab='canvas'; b.textContent='Канвасы 🎨';
+      b.addEventListener('click', ()=> switchTab('canvas'));
+      tabs.appendChild(b);
+    }
+    // hook switchTab to handle canvas
+    const origSwitch = window.switchTab;
+    if(origSwitch){
+      window.switchTab = function(tab){
+        origSwitch(tab);
+        if(tab==='canvas') refreshCanvases();
+      }
+    } else {
+      // fallback
+      window.switchTab = function(tab){
+        document.querySelectorAll('[id^="tab-"]').forEach(s=> s.style.display = s.id==='tab-'+tab?'':'none');
+        document.querySelectorAll('.nav-tabs button').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+        if(tab==='canvas') refreshCanvases();
+      }
+    }
+    // also patch existing tab switching to hide canvas
+    const origBtns=document.querySelectorAll('.nav-tabs button');
+    origBtns.forEach(b=> b.addEventListener('click', ()=>{
+      if(b.dataset.tab!=='canvas'){ const sec=document.getElementById('tab-canvas'); if(sec) sec.style.display='none'; }
+    }));
+  });
+  </script>
   <!-- LEADS -->
   <section id="tab-leads" style="display:none">
     <div class="card-panel">

@@ -69,12 +69,19 @@ body{overflow:hidden}
   </div>
   <div style="flex:1"></div>
   <div class="toolbar">
+    <span class="hint2" id="canvas-id-badge" style="background:#fff;border:1px solid #E7E5F0;padding:6px 10px;border-radius:999px;font-weight:700"></span>
+    <button class="btn-sm" onclick="createNewCanvas()">+ Новый</button>
+    <button class="btn-sm" onclick="listCanvases()">📋 Список</button>
+    <div class="sep"></div>
     <button class="btn-sm" onclick="importLandingReal()">Импорт лендинга → Canvas</button>
     <button class="btn-sm" onclick="importLanding()">+ Демо блок</button>
     <div class="sep"></div>
     <button class="btn-sm" onclick="save()">Сохранить</button>
     <button class="btn-sm" onclick="exportHtml()">Экспорт HTML</button>
-    <button class="btn-sm primary" onclick="publish()">Опубликовать</button>
+    <button class="btn-sm" onclick="exportZip()">Экспорт ZIP</button>
+    <button class="btn-sm primary" onclick="publish()">Nelvi</button>
+    <button class="btn-sm" onclick="publishS3()" style="background:#FFF7ED;border-color:#FFD6C8">S3</button>
+    <button class="btn-sm" onclick="publishWpPrompt()" style="background:#ECFDF5;border-color:#A7F3D0">WP</button>
     <a href="/client" class="btn-sm" style="text-decoration:none;color:inherit">Клиенту →</a>
   </div>
 </div>
@@ -115,20 +122,45 @@ body{overflow:hidden}
       <div class="row2"><button class="btn-sm" onclick="undo()">↩️ Назад</button><button class="btn-sm" onclick="redo()">↪️ Вперёд</button></div>
     </div>
     <div style="margin-top:12px;padding:10px;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:10px" class="hint2">
-      Level 3 — свободный канвас. <code>localStorage: nelvi_canvas_v1</code> + <code>POST /api/canvas/demo-canvas</code>. История 50 шагов. Сетка 24px, брейкпоинты 1120/768/400.
+      Level 3 — свободный канвас. <code id="hint-canvas">localStorage: nelvi_canvas_<span id="hint-id">demo-canvas</span></code> + <code>POST /api/canvas/{id}</code>. История 50 шагов. Сетка 24px. Экспорт HTML/ZIP. Публикация Nelvi/S3/WP.
     </div>
+    <script>document.addEventListener('DOMContentLoaded',()=>{ const h=document.getElementById('hint-id'); if(h) h.textContent=CANVAS_ID; });</script>
   </div>
 </div>
 <input type="file" id="filepick" accept="image/*" style="display:none">
 <script>
-const LS='nelvi_canvas_v1';
-let blocks = JSON.parse(localStorage.getItem(LS) || 'null') || [
+// canvas id from ?id= or localStorage last
+const _params = new URLSearchParams(location.search);
+let CANVAS_ID = _params.get('id') || _params.get('canvas') || localStorage.getItem('nelvi_canvas_last') || 'demo-canvas';
+if(!/^[A-Za-z0-9_-]{1,32}$/.test(CANVAS_ID)) CANVAS_ID='demo-canvas';
+localStorage.setItem('nelvi_canvas_last', CANVAS_ID);
+const LS='nelvi_canvas_'+CANVAS_ID;
+let _defaultBlocks = [
   {id:'h1', type:'heading', x:48, y:48, w:520, h:84, z:1, props:{text:'Сайт за вечер. Без кода.', size:36, color:'#2B2B36'}},
   {id:'t1', type:'text', x:48, y:148, w:520, h:72, z:2, props:{text:'Собирай страницы блоками, публикуй в один клик. Свободный канвас — двигай всё мышкой как в Tilda.', size:15, color:'#7A7A8E'}},
   {id:'b1', type:'button', x:48, y:240, w:180, h:44, z:3, props:{text:'Попробовать →', bg:'#5B5FEF', color:'#fff', radius:10}},
   {id:'img1', type:'image', x:640, y:48, w:432, h:280, z:1, props:{src:'', emoji:'🏔️', bg:'#EDEFFF', radius:16}},
   {id:'f1', type:'form', x:48, y:340, w:480, h:220, z:2, props:{title:'Оставьте заявку'}},
 ];
+let _lsBlocks = null;
+try{ _lsBlocks = JSON.parse(localStorage.getItem(LS)||'null'); }catch(e){ _lsBlocks=null; }
+let blocks = (Array.isArray(_lsBlocks) && _lsBlocks.length? _lsBlocks : null) || _defaultBlocks.slice();
+document.addEventListener('DOMContentLoaded', ()=>{
+  const badge=document.getElementById('canvas-id-badge');
+  if(badge) badge.textContent='canvas:'+CANVAS_ID;
+  // try load from backend (overrides LS if exists on server)
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)).then(r=>r.json()).then(j=>{
+    if(j && Array.isArray(j.blocks) && j.blocks.length){
+      blocks=j.blocks;
+      try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
+      history=[JSON.stringify(blocks)]; histPos=0;
+      render(); toast('Загружено '+CANVAS_ID+' ('+blocks.length+' блоков)');
+    } else if(j && j.blocks && !j.blocks.length && _lsBlocks && _lsBlocks.length){
+      // keep LS
+    }
+  }).catch(()=>{});
+});
+
 let selected=null;
 let device='desktop';
 let history=[JSON.stringify(blocks)], histPos=0;
@@ -138,10 +170,10 @@ function pushHist(){ const s=JSON.stringify(blocks); if(s===history[histPos]) re
 function undo(){ if(histPos>0){ histPos--; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↩️ Отменено'); } }
 function redo(){ if(histPos<history.length-1){ histPos++; blocks=JSON.parse(history[histPos]); selected=null; render(); save(false); toast('↪️ Повтор'); } }
 function save(withHist=true){
-  localStorage.setItem(LS, JSON.stringify(blocks));
+  try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
   if(withHist) pushHist();
-  fetch('/api/canvas/demo-canvas', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})}).catch(()=>{});
-  if(withHist) toast('Сохранено');
+  fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks})}).catch(()=>{});
+  if(withHist) toast('Сохранено '+CANVAS_ID);
 }
 function uid(){return Math.random().toString(36).slice(2,8)}
 function snap(v){ return snapEl.checked ? Math.round(v/24)*24 : v; }
@@ -231,14 +263,73 @@ function renderExportHtml(){
 function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 async function publish(){
   save(false);
-  const id='demo-canvas';
   try{
-    const r=await fetch('/api/canvas/'+id+'/publish', {method:'POST'});
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/publish', {method:'POST'});
     const j=await r.json();
     if(!r.ok) throw new Error(j.error||r.status);
     toast('Опубликовано → '+j.url);
     window.open(j.url, '_blank');
   }catch(e){ toast('Ошибка публикации: '+e.message); }
+}
+function exportZip(){
+  save(false);
+  const url='/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/zip';
+  const a=document.createElement('a'); a.href=url; a.download='canvas-'+CANVAS_ID+'.zip'; document.body.appendChild(a); a.click(); a.remove();
+  toast('Скачиваем ZIP…');
+}
+async function publishS3(){
+  save(false);
+  try{
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/publish/s3', {method:'POST'});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    toast('S3 → '+j.url);
+    window.open(j.url, '_blank');
+  }catch(e){ toast('S3 ошибка: '+e.message); }
+}
+async function publishWpPrompt(){
+  const wp_url=prompt('Адрес WordPress (https://example.com)','');
+  if(!wp_url) return;
+  const username=prompt('Логин WP','');
+  if(!username) return;
+  const app_password=prompt('Application Password (xxxx xxxx ...)','');
+  if(!app_password) return;
+  const status=prompt('Статус draft/publish','draft')||'draft';
+  save(false);
+  try{
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/publish/wp', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({wp_url, username, app_password, status})});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    toast('WP → '+j.url);
+    window.open(j.url, '_blank');
+  }catch(e){ toast('WP ошибка: '+e.message); }
+}
+async function publishStatic(){
+  save(false);
+  try{
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/publish/static', {method:'POST'});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    toast('Nelvi → '+j.url);
+    window.open(j.url, '_blank');
+  }catch(e){ toast('Ошибка: '+e.message); }
+}
+async function createNewCanvas(){
+  try{
+    const r=await fetch('/api/canvases', {method:'POST'});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    location.href='/canvas?id='+encodeURIComponent(j.id);
+  }catch(e){ toast('Ошибка создания: '+e.message); }
+}
+async function listCanvases(){
+  try{
+    const r=await fetch('/api/canvases');
+    const j=await r.json();
+    const list=(j.canvases||[]).map(c=> c.id+' ('+c.blocks+' блоков)').join('\n') || 'пусто';
+    const id=prompt('Канвасы:\n'+list+'\n\nВведи ID чтобы открыть (или пусто):','');
+    if(id && /^[A-Za-z0-9_-]{1,32}$/.test(id)) location.href='/canvas?id='+encodeURIComponent(id);
+  }catch(e){ toast('Ошибка списка: '+e.message); }
 }
 
 function render(){

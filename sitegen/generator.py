@@ -164,6 +164,7 @@ def get_job(job_id: str):
             "status": job["status"],
             "stage": job["stage"],
             "kind": job.get("kind", "generate"),
+            "site_kind": job.get("site_kind", job.get("kind", "generate")),
             "source_url": job.get("source_url"),
             "stages": [s["title"] for s in stages],
             "hints": [s["hint"] for s in stages],

@@ -245,7 +245,7 @@ def generate(body: GenerateIn, request: Request):
     # taplink убран: QR-визитка (vcard) покрывает мультиссылку; старый kind мапим в vcard
     if kind == "taplink":
         kind = "vcard"
-    if kind not in ("landing", "vcard"):
+    if kind not in ("landing", "vcard", "canvas"):
         kind = "landing"
     answers = {
         "Название": body.name,
@@ -259,6 +259,37 @@ def generate(body: GenerateIn, request: Request):
     bad = _moderate_text(combined)
     if bad:
         return JSONResponse({"error": f"Контент отклонён модерацией (найдено: {bad}) — проверьте формулировки"}, status_code=400)
+    # canvas — отдельный флоу: создаём пустой канвас без LLM, сразу готово
+    if kind == "canvas":
+        import uuid, json as _j
+        job_id = uuid.uuid4().hex[:8]
+        # ensure unique
+        while os.path.exists(os.path.join(generator.SITES_DIR, f"{job_id}.html")) or os.path.exists(os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")):
+            job_id = uuid.uuid4().hex[:8]
+        brand = body.name.strip()[:60] or "Nelvi Canvas"
+        site = {"brand": brand, "kind": "canvas", "theme": {"mode": body.theme_mode, "accent": body.accent}, "sections": [], "canvas_blocks": []}
+        # default blocks with brand
+        default_blocks=[
+            {"id":"h1","type":"heading","x":48,"y":48,"w":520,"h":84,"z":1,"props":{"text": brand, "size":36,"color":"#2B2B36"}},
+            {"id":"t1","type":"text","x":48,"y":148,"w":520,"h":72,"z":2,"props":{"text": body.about.strip()[:160] or "Собирай страницы блоками, публикуй в один клик.", "size":15,"color":"#7A7A8E"}},
+            {"id":"b1","type":"button","x":48,"y":240,"w":180,"h":44,"z":3,"props":{"text":"Попробовать →","bg":"#5B5FEF","color":"#fff","radius":10}},
+        ]
+        site["canvas_blocks"]=default_blocks
+        # save canvas file
+        try:
+            os.makedirs(CANVAS_DIR, exist_ok=True)
+            with open(os.path.join(CANVAS_DIR, f"canvas-{job_id}.json"), "w", encoding="utf-8") as f:
+                _j.dump({"blocks": default_blocks}, f, ensure_ascii=False)
+        except Exception: pass
+        html, _ = _canvas_build_html(job_id, default_blocks, site)
+        generator._save_all(job_id, site, html, push_version=True)
+        # also create fake job entry so /api/job works
+        try:
+            import generator as _gen
+            with _gen._LOCK:
+                _gen._JOBS[job_id]={"id": job_id, "kind":"canvas","site_kind":"canvas","status":"done","stage":5,"answers":answers,"theme":{"mode":body.theme_mode,"accent":body.accent},"stage_done":True}
+        except Exception: pass
+        return {"job_id": job_id, "kind": "canvas"}
     job_id = generator.start_job(answers, body.theme_mode, body.accent, site_kind=kind)
     return {"job_id": job_id, "kind": kind}
 
@@ -1066,6 +1097,97 @@ try:
 except Exception:
     CANVAS_DIR = generator.SITES_DIR
 
+# ---- helpers for canvas html ----
+def _canvas_esc(s): return str(s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
+    from design import build_css, FONTS_LINK
+    site_prev = site_prev or {}
+    theme = site_prev.get("theme") or {"mode": "light", "accent": "purple"}
+    accent = theme.get("accent") or "purple"
+    mode = theme.get("mode") or "light"
+    css = build_css(mode, accent)
+    brand = site_prev.get("brand") or "Nelvi Canvas"
+    esc=_canvas_esc
+    inner=""
+    for b in sorted(blocks, key=lambda x: x.get("z",0)):
+        x=b.get("x",0); y=b.get("y",0); w=b.get("w",100); h=b.get("h",40); z=b.get("z",1)
+        s=f"left:{x}px;top:{y}px;width:{w}px;height:{h}px;z-index:{z};"
+        t=b.get("type"); props=b.get("props",{})
+        if t=="heading":
+            inner+=f'<div style="position:absolute;{s}font-family:Unbounded,sans-serif;font-size:{props.get("size",28)}px;color:{props.get("color","#2B2B36")};font-weight:800">{esc(props.get("text",""))}</div>'
+        elif t=="text":
+            inner+=f'<div style="position:absolute;{s}font-family:Inter,sans-serif;font-size:{props.get("size",14)}px;color:{props.get("color","#2B2B36")};background:{props.get("bg","transparent")};border:{("1px solid "+props.get("border")) if props.get("border") else "none"};border-radius:10px;padding:10px;white-space:pre-line">{esc(props.get("text",""))}</div>'
+        elif t=="button":
+            inner+=f'<a href="#" style="position:absolute;{s}display:flex;align-items:center;justify-content:center;background:{props.get("bg","#5B5FEF")};color:{props.get("color","#fff")};border-radius:{props.get("radius",10)}px;font-family:Inter,sans-serif;font-weight:600;text-decoration:none">{esc(props.get("text","Кнопка"))}</a>'
+        elif t=="image":
+            src=props.get("src","")
+            if src:
+                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;overflow:hidden"><img src="{src}" style="width:100%;height:100%;object-fit:cover"></div>'
+            else:
+                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;display:flex;align-items:center;justify-content:center;font-size:42px">{esc(props.get("emoji","🖼️"))}</div>'
+        elif t=="form":
+            inner+=f'<div style="position:absolute;{s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>{esc(props.get("title","Форма"))}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>'
+        elif t=="divider":
+            inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#E7E5F0")};height:1px"></div>'
+    html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
+    site = site_prev or {"brand": brand, "kind": "canvas", "theme": theme, "sections": []}
+    site["kind"]="canvas"
+    site["canvas_blocks"]=blocks
+    return html, site
+
+@app.get("/api/canvases")
+def list_canvases():
+    # список всех канвасов (id = имя файла без префикса)
+    try:
+        ids=[]
+        for fn in os.listdir(CANVAS_DIR):
+            if fn.startswith("canvas-") and fn.endswith(".json"):
+                jid=fn[7:-5]
+                if _valid_job_id(jid):
+                    ids.append(jid)
+        # also include demo-canvas if exists in LS but not file? skip
+        # sort by mtime desc
+        def mtime(j):
+            try: return os.path.getmtime(os.path.join(CANVAS_DIR, f"canvas-{j}.json"))
+            except: return 0
+        ids.sort(key=mtime, reverse=True)
+        out=[]
+        for jid in ids[:100]:
+            p=os.path.join(CANVAS_DIR, f"canvas-{jid}.json")
+            try:
+                with open(p, encoding="utf-8") as f:
+                    data=json.load(f)
+                    blocks=data.get("blocks",[]) if isinstance(data, dict) else []
+                    out.append({"id": jid, "blocks": len(blocks), "updated": int(mtime(jid))})
+            except: out.append({"id": jid, "blocks": 0})
+        return {"canvases": out}
+    except Exception as e:
+        return {"canvases": [], "error": str(e)}
+
+@app.post("/api/canvases")
+def create_canvas(request: Request):
+    # создать новый канвас с рандомным id и пустыми блоками
+    if _limited(request, "export"):
+        return _too_many("export")
+    import uuid
+    job_id=uuid.uuid4().hex[:8]
+    # ensure unique
+    while os.path.exists(os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")):
+        job_id=uuid.uuid4().hex[:8]
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    default_blocks=[
+        {"id":"h1","type":"heading","x":48,"y":48,"w":520,"h":84,"z":1,"props":{"text":"Сайт за вечер. Без кода.","size":36,"color":"#2B2B36"}},
+        {"id":"t1","type":"text","x":48,"y":148,"w":520,"h":72,"z":2,"props":{"text":"Собирай страницы блоками, публикуй в один клик.","size":15,"color":"#7A7A8E"}},
+        {"id":"b1","type":"button","x":48,"y":240,"w":180,"h":44,"z":3,"props":{"text":"Попробовать →","bg":"#5B5FEF","color":"#fff","radius":10}},
+    ]
+    data={"blocks": default_blocks}
+    try:
+        with open(p,"w",encoding="utf-8") as f: json.dump(data,f,ensure_ascii=False)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    base=str(request.base_url).rstrip("/")
+    return {"ok": True, "id": job_id, "url": f"{base}/canvas?id={job_id}"}
+
 @app.get("/api/canvas/{job_id}")
 def get_canvas(job_id: str):
     if not _valid_job_id(job_id):
@@ -1092,12 +1214,45 @@ def save_canvas(job_id: str, body: CanvasIn):
         return JSONResponse({"error": str(e)}, status_code=500)
     return {"ok": True}
 
+@app.get("/api/canvas/{job_id}/zip")
+def canvas_zip(job_id: str, request: Request):
+    if _limited(request, "export"):
+        return _too_many("export")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    blocks=[]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                blocks=json.load(f).get("blocks",[])
+        except: blocks=[]
+    if not blocks:
+        # try fallback to site dict canvas_blocks
+        site_prev=generator.get_site_dict(job_id) or {}
+        blocks=site_prev.get("canvas_blocks") or []
+    if not blocks:
+        return JSONResponse({"error": "Канвас пуст"}, status_code=400)
+    site_prev=generator.get_site_dict(job_id) or {}
+    html, site=_canvas_build_html(job_id, blocks, site_prev)
+    import io, zipfile
+    brand=(site.get("brand") or job_id).strip()[:40] or job_id
+    buf=io.BytesIO()
+    with zipfile.ZipFile(buf,"w",zipfile.ZIP_DEFLATED) as z:
+        z.writestr("index.html", html)
+        readme=f"Канвас: {brand}\nЭкспорт Nelvi Canvas — {job_id}\n\nКак залить на хостинг:\n1. Распакуйте архив, загрузите index.html на хостинг.\n2. Сайт — один файл, картинки встроены как data-URI.\n3. Форма шлёт на /api/lead — замените action при необходимости.\n"
+        z.writestr("README.txt", readme)
+        # also include site json for debug
+        try: z.writestr("site.json", json.dumps(site, ensure_ascii=False, indent=2))
+        except: pass
+    buf.seek(0)
+    from fastapi.responses import Response
+    return Response(content=buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="canvas-{job_id}.zip"'})
+
 @app.post("/api/canvas/{job_id}/publish")
 def publish_canvas(job_id: str, request: Request):
-    # рендерим канвас-блоки в HTML и сохраняем как обычный сайт (доступен по /api/site/{id})
     if not _valid_job_id(job_id):
         return JSONResponse({"error": "bad id"}, status_code=400)
-    # читаем блоки
     p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
     blocks=[]
     if os.path.exists(p):
@@ -1108,45 +1263,177 @@ def publish_canvas(job_id: str, request: Request):
             blocks=[]
     if not blocks:
         return JSONResponse({"error": "Канвас пуст — добавь блоки"}, status_code=400)
-    # собираем HTML как в canvas.html renderExportHtml (server-side)
-    from design import build_css, FONTS_LINK
-    # пытаемся взять тему из существующего сайта или дефолт
     site_prev = generator.get_site_dict(job_id) or {}
-    theme = site_prev.get("theme") or {"mode": "light", "accent": "purple"}
-    accent = theme.get("accent") or "purple"
-    mode = theme.get("mode") or "light"
-    css = build_css(mode, accent)
-    brand = site_prev.get("brand") or "Nelvi Canvas"
-    def esc(s): return str(s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
-    inner=""
-    for b in sorted(blocks, key=lambda x: x.get("z",0)):
-        x=b.get("x",0); y=b.get("y",0); w=b.get("w",100); h=b.get("h",40); z=b.get("z",1)
-        s=f"left:{x}px;top:{y}px;width:{w}px;height:{h}px;z-index:{z};"
-        t=b.get("type"); props=b.get("props",{})
-        if t=="heading":
-            inner+=f'<div style="position:absolute;{s}font-family:Unbounded,sans-serif;font-size:{props.get("size",28)}px;color:{props.get("color","#2B2B36")};font-weight:800">{esc(props.get("text",""))}</div>'
-        elif t=="text":
-            inner+=f'<div style="position:absolute;{s}font-family:Inter,sans-serif;font-size:{props.get("size",14)}px;color:{props.get("color","#2B2B36")};background:{props.get("bg","transparent")};border:{("1px solid "+props.get("border")) if props.get("border") else "none"};border-radius:10px;padding:10px;white-space:pre-line">{esc(props.get("text",""))}</div>'
-        elif t=="button":
-            inner+=f'<a href="#" style="position:absolute;{s}display:flex;align-items:center;justify-content:center;background:{props.get("bg","#5B5FEF")};color:{props.get("color","#fff")};border-radius:{props.get("radius",10)}px;font-family:Inter,sans-serif;font-weight:600;text-decoration:none">{esc(props.get("text","Кнопка"))}</a>'
-        elif t=="image":
-            src=props.get("src","")
-            if src:
-                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;overflow:hidden"><img src="{src}" style="width:100%;height:100%;object-fit:cover"></div>'
-            else:
-                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;display:flex;align-items:center;justify-content:center;font-size:42px">{esc(props.get("emoji","🖼️"))}</div>'
-        elif t=="form":
-            inner+=f'<div style="position:absolute;{s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>{esc(props.get("title","Форма"))}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>'
-        elif t=="divider":
-            inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#E7E5F0")};height:1px"></div>'
-    html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
-    # сохраняем как сайт
-    site = site_prev or {"brand": brand, "kind": "canvas", "theme": theme, "sections": []}
-    site["kind"]="canvas"
-    site["canvas_blocks"]=blocks
+    html, site = _canvas_build_html(job_id, blocks, site_prev)
     generator._save_all(job_id, site, html, False)
     base=str(request.base_url).rstrip("/")
     return {"ok": True, "url": f"{base}/api/site/{job_id}", "html_len": len(html)}
+
+@app.post("/api/canvas/{job_id}/publish/s3")
+def publish_canvas_s3(job_id: str, request: Request):
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    blocks=[]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f: blocks=json.load(f).get("blocks",[])
+        except: blocks=[]
+    if not blocks:
+        site_prev=generator.get_site_dict(job_id) or {}
+        blocks=site_prev.get("canvas_blocks") or []
+    if not blocks:
+        return JSONResponse({"error": "Канвас пуст"}, status_code=400)
+    site_prev=generator.get_site_dict(job_id) or {}
+    html, site=_canvas_build_html(job_id, blocks, site_prev)
+    # ensure site saved before S3
+    generator._save_all(job_id, site, html, False)
+    # delegate to S3 logic (same as publish_s3)
+    try:
+        try: import storage as st
+        except ImportError: import sitegen.storage as st
+        bucket=getattr(st,"S3_BUCKET","") or os.environ.get("SITEGEN_S3_BUCKET","")
+        if not bucket or not st.is_s3():
+            return JSONResponse({"error": "S3 не настроен — задайте SITEGEN_S3_BUCKET / SITEGEN_S3_ACCESS_KEY / SITEGEN_S3_SECRET_KEY"}, status_code=503)
+        region=getattr(st,"S3_REGION","eu-central-1") or os.environ.get("SITEGEN_S3_REGION","eu-central-1")
+        endpoint=getattr(st,"S3_ENDPOINT","") or os.environ.get("SITEGEN_S3_ENDPOINT","")
+        key=f"sites/{job_id}/index.html"
+        st.save_bytes(key, html.encode())
+        try: st.save_bytes(f"sites/{job_id}.html", html.encode())
+        except: pass
+        if endpoint: base=endpoint.rstrip("/") + f"/{bucket}"
+        else: base=f"https://{bucket}.s3.{region}.amazonaws.com"
+        public_url=f"{base}/{key}"
+        return {"ok": True, "url": public_url, "bucket": bucket, "key": key}
+    except JSONResponse:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": f"S3 публикация не удалась: {e}"}, status_code=502)
+
+@app.post("/api/canvas/{job_id}/publish/wp")
+def publish_canvas_wp(job_id: str, body: WpPublishIn, request: Request):
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    blocks=[]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f: blocks=json.load(f).get("blocks",[])
+        except: blocks=[]
+    if not blocks:
+        site_prev=generator.get_site_dict(job_id) or {}
+        blocks=site_prev.get("canvas_blocks") or []
+    if not blocks:
+        return JSONResponse({"error": "Канвас пуст"}, status_code=400)
+    site_prev=generator.get_site_dict(job_id) or {}
+    html, site=_canvas_build_html(job_id, blocks, site_prev)
+    generator._save_all(job_id, site, html, False)
+    # reuse WP logic — same as publish_wp but with canvas html
+    try:
+        import importer
+        wp_base=importer._validate_wp_url(body.wp_url)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    status=body.status.strip().lower()
+    if status not in ("draft","publish","private"): status="draft"
+    title=(site.get("brand") or "Сайт из Nelvi Canvas")[:120]
+    import base64, httpx
+    creds=base64.b64encode(f"{body.username}:{body.app_password}".encode()).decode()
+    auth_h=f"Basic {creds}"
+    wp_base=wp_base.rstrip("/")
+    html_for_wp=html
+    media_featured_id=None
+    try:
+        import images as images_mod
+        import os as _os
+        candidates=[]
+        hero_path=_os.path.join(images_mod.ASSETS_DIR, job_id, "hero.webp")
+        if _os.path.exists(hero_path): candidates.append(("hero.webp", hero_path))
+        prod_dir=_os.path.join(images_mod.ASSETS_DIR, job_id)
+        if _os.path.isdir(prod_dir):
+            for fn in sorted(_os.listdir(prod_dir)):
+                if fn.startswith("prod_") and fn.endswith(".webp"):
+                    candidates.append((fn, _os.path.join(prod_dir, fn)))
+        for fname, fpath in candidates[:4]:
+            try:
+                with open(fpath,"rb") as fh: data=fh.read()
+                if not data or len(data)>5_000_000: continue
+                data_uri=images_mod.data_uri(job_id, fname)
+                with httpx.Client(timeout=25.0) as cl:
+                    r=cl.post(wp_base+"/wp-json/wp/v2/media", content=data, headers={"Authorization": auth_h, "Content-Disposition": f'attachment; filename="{fname}"', "Content-Type": "image/webp"})
+                    r.raise_for_status()
+                    j=r.json()
+                    media_url=j.get("source_url") or j.get("guid",{}).get("rendered")
+                    media_id=j.get("id")
+                    if media_url and data_uri and data_uri in html_for_wp:
+                        html_for_wp=html_for_wp.replace(data_uri, media_url,1)
+                    if fname=="hero.webp" and media_id and not media_featured_id:
+                        media_featured_id=media_id
+            except Exception as me:
+                print(f"[WP-MEDIA-CANVAS] {fname} skipped {me}")
+                continue
+    except Exception as e:
+        print(f"[WP-MEDIA-CANVAS] skip {e}")
+    wp_content=f"<!-- wp:html -->\n{html_for_wp}\n<!-- /wp:html -->"
+    payload={"title": title, "content": wp_content, "status": status}
+    if media_featured_id: payload["featured_media"]=media_featured_id
+    headers={"Authorization": auth_h, "Content-Type": "application/json"}
+    endpoint=wp_base+"/wp-json/wp/v2/pages"
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            r=client.post(endpoint, json=payload, headers=headers)
+            if r.status_code==404:
+                endpoint2=wp_base+"/wp-json/wp/v2/posts"
+                r=client.post(endpoint2, json=payload, headers=headers)
+                endpoint=endpoint2
+            r.raise_for_status()
+            data=r.json()
+            link=data.get("link") or data.get("guid",{}).get("rendered") or wp_base
+            out={"ok": True, "url": link, "id": data.get("id"), "endpoint": endpoint}
+            if media_featured_id: out["featured_media"]=media_featured_id
+            return out
+    except httpx.HTTPStatusError as e:
+        code=e.response.status_code if e.response is not None else "?"
+        detail=""
+        try:
+            j=e.response.json(); detail=j.get("message") or str(j)[:400]
+        except: detail=(e.response.text[:400] if e.response is not None else "")
+        return JSONResponse({"error": f"WordPress вернул HTTP {code}: {detail}"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": f"Не удалось связаться с WordPress: {e}"}, status_code=502)
+
+@app.post("/api/canvas/{job_id}/publish/static")
+def publish_canvas_static(job_id: str, request: Request):
+    if _limited(request, "publish"):
+        return _too_many("publish")
+    if not _valid_job_id(job_id):
+        return _no_job()
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    blocks=[]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f: blocks=json.load(f).get("blocks",[])
+        except: blocks=[]
+    if not blocks:
+        site_prev=generator.get_site_dict(job_id) or {}
+        blocks=site_prev.get("canvas_blocks") or []
+    if not blocks:
+        return JSONResponse({"error": "Канвас пуст"}, status_code=400)
+    site_prev=generator.get_site_dict(job_id) or {}
+    html, site=_canvas_build_html(job_id, blocks, site_prev)
+    generator._save_all(job_id, site, html, False)
+    try:
+        try: import storage as st
+        except ImportError: import sitegen.storage as st
+        if st.is_s3(): st.save_bytes(f"sites/{job_id}.html", html.encode())
+    except: pass
+    base=str(request.base_url).rstrip("/")
+    public_url=f"{base}/api/site/{job_id}"
+    return {"ok": True, "url": public_url, "hosting": "nelvi"}
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
