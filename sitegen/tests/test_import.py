@@ -54,6 +54,75 @@ def test_pick_accent():
     assert importer.pick_accent_from_colors([]) is None
 
 
+def test_heuristic_shop_detection():
+    html = """<html><head><title>Shop Test</title></head><body>
+    <h1>Магазин Товары</h1><h2>Каталог</h2>
+    <p>Товар A — 1200 ₽</p><p>Товар B — 2300 ₽</p><p>Товар C — 999 ₽</p>
+    <p>Купить доставка каталог товары магазин цена цены</p>
+    </body></html>"""
+    sig = importer.extract_signals(html, "https://shop.example.com")
+    site = importer.heuristic_site(sig, "light", "purple")
+    # должен стать магазином с каталогом и корзиной
+    assert any(s["type"] == "products" for s in site["sections"])
+    assert site["features"]["cart"] is True
+    assert any(s.get("id") == "catalog" or s["type"] == "products" for s in site["sections"])
+
+
+def test_wp_publish_with_media(client, tmp_path, monkeypatch):
+    import app as appmod
+    import images, generator, chat as chat_ops, demo_content, sections
+    import httpx as _httpx
+    import json as _json
+    monkeypatch.setattr(images, "ASSETS_DIR", str(tmp_path / "assets"))
+    # создаём сайт с hero
+    site = chat_ops.normalize_site(demo_content.build_site(
+        {"Название": "T", "О бизнесе": "Кафе в Казани.", "Услуги/товары": "Кофе - 100",
+         "Преимущества": "Вкусно", "Дополнительно": ""}, "light", "blue"))
+    site["theme"] = {"mode": "light", "accent": "blue"}
+    from PIL import Image
+    import io
+    im = Image.new("RGB", (200, 200), color="blue")
+    buf = io.BytesIO()
+    im.save(buf, format="WEBP")
+    webp = buf.getvalue()
+    images._save_asset("wptest", "hero.webp", webp)
+    site["hero_image"] = True
+    generator._save_all("wptest", site, sections.render_page(dict(site), site_id="wptest"), True)
+    from unittest.mock import Mock
+    appmod._RATE.clear()
+    orig_client = _httpx.Client
+    media_resp = Mock()
+    media_resp.status_code = 200
+    media_resp.raise_for_status = lambda: None
+    media_resp.json = lambda: {"id": 99, "source_url": "https://wp.example.com/wp-content/uploads/hero.webp"}
+    page_resp = Mock()
+    page_resp.status_code = 201
+    page_resp.raise_for_status = lambda: None
+    page_resp.json = lambda: {"id": 123, "link": "https://wp.example.com/page"}
+    calls = []
+    def _fake_post(self, url, **kw):
+        calls.append(url)
+        if "/wp-json/wp/v2/media" in url:
+            return media_resp
+        return page_resp
+    def _fake_client(*args, **kwargs):
+        # TestClient использует base_url=http://testserver — пропускаем
+        if kwargs.get("base_url", "").startswith("http://testserver") or "app" in kwargs:
+            return orig_client(*args, **kwargs)
+        m = Mock()
+        m.__enter__ = lambda s: m
+        m.__exit__ = lambda *a: False
+        m.post = lambda url, **kw: _fake_post(m, url, **kw)
+        return m
+    monkeypatch.setattr(_httpx, "Client", _fake_client)
+    r = client.post("/api/publish/wp/wptest", json={"wp_url": "https://wp.example.com", "username": "admin", "app_password": "app-pass"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] and body["featured_media"] == 99
+    assert any("/media" in c for c in calls)
+    assert any("/pages" in c for c in calls)
+
+
 def test_try_attach_images(tmp_path, monkeypatch):
     import images
     # перенаправляем assets в tmp

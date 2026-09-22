@@ -267,7 +267,13 @@ def export_site(job_id: str, request: Request):
 
 @app.post("/api/publish/wp/{job_id}")
 def publish_wp(job_id: str, body: WpPublishIn, request: Request):
-    """Публикация в WordPress: создаёт страницу через WP REST API."""
+    """Публикация в WordPress: создаёт страницу через WP REST API.
+
+    Если у сайта есть локальные hero/prod картинки (data-URI в HTML),
+    пытаемся загрузить их в медиабиблиотеку WP (/wp-json/wp/v2/media)
+    и подменить data-URI на URL из WP — страница становится лёгкой и
+    картинки попадают в медиатеку.
+    """
     if _limited(request, "publish"):
         return _too_many("publish")
     if not _valid_job_id(job_id):
@@ -284,29 +290,85 @@ def publish_wp(job_id: str, body: WpPublishIn, request: Request):
     status = body.status.strip().lower()
     if status not in ("draft", "publish", "private"):
         status = "draft"
-    # готовим полезную нагрузку WP
     title = (site.get("brand") or "Сайт из СБОРКА")[:120]
-    # заворачиваем HTML в <!-- wp:html --> чтобы WP не резал
-    wp_content = f"<!-- wp:html -->\n{html}\n<!-- /wp:html -->"
-    payload = {"title": title, "content": wp_content, "status": status}
-    # http basic auth: username: app_password
+
     import base64
     import httpx
     creds = base64.b64encode(f"{body.username}:{body.app_password}".encode()).decode()
-    # пробуем оба эндпоинта: /wp-json/wp/v2/pages и /wp-json/wp/v2/posts (страница предпочтительнее)
-    headers = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
-    endpoint = wp_base.rstrip("/") + "/wp-json/wp/v2/pages"
+    auth_h = f"Basic {creds}"
+    wp_base = wp_base.rstrip("/")
+
+    # --- попробуем залить медиа (hero + prod) ---
+    # html будет мутировать: data-URI -> WP URL
+    html_for_wp = html
+    media_featured_id = None
+    try:
+        import images as images_mod
+        import os as _os
+        # соберём файлы которые реально есть
+        candidates = []
+        hero_path = _os.path.join(images_mod.ASSETS_DIR, job_id, "hero.webp")
+        if _os.path.exists(hero_path):
+            candidates.append(("hero.webp", hero_path))
+        # prod images
+        prod_dir = _os.path.join(images_mod.ASSETS_DIR, job_id)
+        if _os.path.isdir(prod_dir):
+            for fn in sorted(_os.listdir(prod_dir)):
+                if fn.startswith("prod_") and fn.endswith(".webp"):
+                    candidates.append((fn, _os.path.join(prod_dir, fn)))
+        # ограничим 4 файла чтобы не долго (hero + 3 товара)
+        for fname, fpath in candidates[:4]:
+            try:
+                with open(fpath, "rb") as fh:
+                    data = fh.read()
+                if not data or len(data) > 5_000_000:
+                    continue
+                data_uri = images_mod.data_uri(job_id, fname)
+                # грузим в WP
+                with httpx.Client(timeout=25.0) as cl:
+                    r = cl.post(
+                        wp_base + "/wp-json/wp/v2/media",
+                        content=data,
+                        headers={
+                            "Authorization": auth_h,
+                            "Content-Disposition": f'attachment; filename="{fname}"',
+                            "Content-Type": "image/webp",
+                        },
+                    )
+                    r.raise_for_status()
+                    j = r.json()
+                    media_url = j.get("source_url") or j.get("guid", {}).get("rendered")
+                    media_id = j.get("id")
+                    if media_url and data_uri and data_uri in html_for_wp:
+                        html_for_wp = html_for_wp.replace(data_uri, media_url, 1)
+                    if fname == "hero.webp" and media_id and not media_featured_id:
+                        media_featured_id = media_id
+            except Exception as me:  # noqa: BLE001 — медиа не критично, тихо
+                print(f"[WP-MEDIA] {fname} upload skipped: {me}")
+                continue
+    except Exception as e:  # noqa: BLE001
+        print(f"[WP-MEDIA] skip: {e}")
+
+    wp_content = f"<!-- wp:html -->\n{html_for_wp}\n<!-- /wp:html -->"
+    payload = {"title": title, "content": wp_content, "status": status}
+    if media_featured_id:
+        payload["featured_media"] = media_featured_id
+    headers = {"Authorization": auth_h, "Content-Type": "application/json"}
+    endpoint = wp_base + "/wp-json/wp/v2/pages"
     try:
         with httpx.Client(timeout=20.0) as client:
             r = client.post(endpoint, json=payload, headers=headers)
             if r.status_code == 404:
-                # фолбэк на записи если страницы закрыты
-                endpoint2 = wp_base.rstrip("/") + "/wp-json/wp/v2/posts"
+                endpoint2 = wp_base + "/wp-json/wp/v2/posts"
                 r = client.post(endpoint2, json=payload, headers=headers)
+                endpoint = endpoint2
             r.raise_for_status()
             data = r.json()
             link = data.get("link") or data.get("guid", {}).get("rendered") or wp_base
-            return {"ok": True, "url": link, "id": data.get("id"), "endpoint": endpoint}
+            out = {"ok": True, "url": link, "id": data.get("id"), "endpoint": endpoint}
+            if media_featured_id:
+                out["featured_media"] = media_featured_id
+            return out
     except httpx.HTTPStatusError as e:
         code = e.response.status_code if e.response is not None else "?"
         detail = ""

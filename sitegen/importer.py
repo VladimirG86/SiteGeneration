@@ -1,7 +1,7 @@
 """Импорт произвольного сайта по URL в модель конструктора.
 
 Пайплайн: URL -> fetch_html -> extract_signals -> LLM(normalize) -> site JSON
-                                       \-> heuristic fallback (без LLM)
+                                       └─> heuristic fallback (без LLM)
 
 Защита от SSRF: режем private/loopback/link-local, только http/https,
 таймаут 12с, лимит размера 2.5 МБ, редиректы <=3.
@@ -145,8 +145,8 @@ _RE_H3 = re.compile(r"<h3[^>]*>(.*?)</h3>", re.I | re.S)
 _RE_P = re.compile(r"<p[^>]*>(.*?)</p>", re.I | re.S)
 _RE_A = re.compile(r'<a[^>]+href=["\'](.*?)["\'][^>]*>(.*?)</a>', re.I | re.S)
 _RE_IMG = re.compile(r'<img[^>]+src=["\'](.*?)["\']', re.I | re.S)
-_RE_PHONE = re.compile(r"(\+7\s*\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})")
-_RE_EMAIL = re.compile(r"([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})")
+_RE_PHONE = re.compile(r"(\+7\s*\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2})")
+_RE_EMAIL = re.compile(r"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})")
 _RE_HEX = re.compile(r"#([0-9a-fA-F]{3,6})\b")
 _RE_STRIP_TAGS = re.compile(r"<[^>]+>")
 _RE_WS = re.compile(r"\s+")
@@ -380,6 +380,16 @@ def heuristic_site(signals: dict, theme_mode: str = "light", accent: str = "purp
     paras = signals.get("paragraphs") or []
     h2s = signals.get("h2") or []
     h3s = signals.get("h3") or []
+    text_dump = signals.get("text_dump") or " ".join(paras + h2s + h3s).lower()
+
+    # эвристика магазина vs услуги: цены, каталог, корзина, купить
+    def _looks_like_shop() -> bool:
+        t = text_dump.lower()
+        price_hits = len(re.findall(r"\d[\d\s]*\s*₽|\d+\s*руб|\$\s*\d|€\s*\d", t))
+        shop_words = sum(t.count(w) for w in ["каталог", "товар", "купить", "корзин", "доставк", "цен", "магазин"])
+        return price_hits >= 3 or shop_words >= 5
+
+    is_shop = _looks_like_shop()
 
     # hero
     hero = {
@@ -411,6 +421,45 @@ def heuristic_site(signals: dict, theme_mode: str = "light", accent: str = "purp
         "type": "contacts", "kicker": "Контакты", "title": "Оставьте заявку",
         "text": "Перезвоним в течение рабочего дня.", "fields": ["name", "phone", "comment"]
     }
+    # если похоже на магазин — делаем каталог с ценами и корзиной
+    if is_shop:
+        # вытаскиваем цены из текста
+        price_pat = re.compile(r"(\d[\d\s]*\s*₽|от\s*\d[\d\s]*\s*₽|\d[\d\s]*\s*руб\.?|\$\s*\d+)", re.I)
+        prod_items = []
+        candidates = (h2s + h3s + paras)[:12]
+        for cand in candidates:
+            # ищем цену в самой строке
+            m = price_pat.search(cand)
+            price = m.group(1).strip()[:24] if m else "по запросу"
+            # имя — чистим от цены
+            name = price_pat.sub("", cand).strip()[:60] or cand[:60]
+            if len(name) < 3 or name.lower() in ("каталог", "товары", "продукция"):
+                continue
+            # desc — следующий абзац или обрезанный cand
+            desc_prod = next((p for p in paras if p != cand and name[:10].lower() not in p.lower()), cand)[:140]
+            prod_items.append({"name": name, "price": price, "desc": desc_prod, "badge": "", "emoji": "🛍️"})
+            if len(prod_items) >= 6:
+                break
+        if len(prod_items) >= 3:
+            products = {"type": "products", "kicker": "Каталог", "title": "Каталог товаров", "items": prod_items[:8]}
+            # вставляем после services
+            sections = [hero, services, products, advantages, about, contacts]
+            hero["cta_primary"] = "Перейти в каталог"
+            site = {
+                "brand": brand,
+                "city": "",
+                "tagline": desc[:40],
+                "phone": phones[0] if phones else "",
+                "email": emails[0] if emails else "",
+                "address": "",
+                "theme": {"mode": theme_mode, "accent": accent},
+                "nav": [{"label": "Каталог", "href": "#catalog"}, {"label": "О нас", "href": "#about"}, {"label": "Контакты", "href": "#contacts"}],
+                "sections": sections,
+                "features": {"cart": True},
+                "import_source": signals.get("url", ""),
+            }
+            return site
+
     site = {
         "brand": brand,
         "city": "",
@@ -424,7 +473,6 @@ def heuristic_site(signals: dict, theme_mode: str = "light", accent: str = "purp
         "features": {"cart": False},
         "import_source": signals.get("url", ""),
     }
-    # цвет: если нашли яркий hex — можно мапнуть на ближайший акцент (упрощённо)
     return site
 
 
