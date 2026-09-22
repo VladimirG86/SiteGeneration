@@ -614,6 +614,15 @@ def job_status(job_id: str):
     return job
 
 
+@app.get("/api/site/{job_id}/json")
+def site_json(job_id: str):
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    site = generator.get_site_dict(job_id)
+    if not site:
+        return _no_job()
+    return site
+
 @app.get("/api/site/{job_id}", response_class=HTMLResponse)
 def site_page(job_id: str):
     if not _valid_job_id(job_id):
@@ -1082,6 +1091,62 @@ def save_canvas(job_id: str, body: CanvasIn):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     return {"ok": True}
+
+@app.post("/api/canvas/{job_id}/publish")
+def publish_canvas(job_id: str, request: Request):
+    # рендерим канвас-блоки в HTML и сохраняем как обычный сайт (доступен по /api/site/{id})
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    # читаем блоки
+    p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    blocks=[]
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                blocks = json.load(f).get("blocks", [])
+        except Exception:
+            blocks=[]
+    if not blocks:
+        return JSONResponse({"error": "Канвас пуст — добавь блоки"}, status_code=400)
+    # собираем HTML как в canvas.html renderExportHtml (server-side)
+    from design import build_css, FONTS_LINK
+    # пытаемся взять тему из существующего сайта или дефолт
+    site_prev = generator.get_site_dict(job_id) or {}
+    theme = site_prev.get("theme") or {"mode": "light", "accent": "purple"}
+    accent = theme.get("accent") or "purple"
+    mode = theme.get("mode") or "light"
+    css = build_css(mode, accent)
+    brand = site_prev.get("brand") or "Nelvi Canvas"
+    def esc(s): return str(s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+    inner=""
+    for b in sorted(blocks, key=lambda x: x.get("z",0)):
+        x=b.get("x",0); y=b.get("y",0); w=b.get("w",100); h=b.get("h",40); z=b.get("z",1)
+        s=f"left:{x}px;top:{y}px;width:{w}px;height:{h}px;z-index:{z};"
+        t=b.get("type"); props=b.get("props",{})
+        if t=="heading":
+            inner+=f'<div style="position:absolute;{s}font-family:Unbounded,sans-serif;font-size:{props.get("size",28)}px;color:{props.get("color","#2B2B36")};font-weight:800">{esc(props.get("text",""))}</div>'
+        elif t=="text":
+            inner+=f'<div style="position:absolute;{s}font-family:Inter,sans-serif;font-size:{props.get("size",14)}px;color:{props.get("color","#2B2B36")};background:{props.get("bg","transparent")};border:{("1px solid "+props.get("border")) if props.get("border") else "none"};border-radius:10px;padding:10px;white-space:pre-line">{esc(props.get("text",""))}</div>'
+        elif t=="button":
+            inner+=f'<a href="#" style="position:absolute;{s}display:flex;align-items:center;justify-content:center;background:{props.get("bg","#5B5FEF")};color:{props.get("color","#fff")};border-radius:{props.get("radius",10)}px;font-family:Inter,sans-serif;font-weight:600;text-decoration:none">{esc(props.get("text","Кнопка"))}</a>'
+        elif t=="image":
+            src=props.get("src","")
+            if src:
+                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;overflow:hidden"><img src="{src}" style="width:100%;height:100%;object-fit:cover"></div>'
+            else:
+                inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#EDEFFF")};border-radius:{props.get("radius",12)}px;display:flex;align-items:center;justify-content:center;font-size:42px">{esc(props.get("emoji","🖼️"))}</div>'
+        elif t=="form":
+            inner+=f'<div style="position:absolute;{s}background:#fff;border:1px solid #E7E5F0;border-radius:12px;padding:14px"><b>{esc(props.get("title","Форма"))}</b><div style="margin-top:8px;display:grid;gap:8px"><input placeholder="Имя" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><input placeholder="Телефон" style="padding:10px;border:1px solid #E7E5F0;border-radius:8px"><button style="padding:10px;background:#5B5FEF;color:#fff;border:none;border-radius:8px">Отправить</button></div></div>'
+        elif t=="divider":
+            inner+=f'<div style="position:absolute;{s}background:{props.get("bg","#E7E5F0")};height:1px"></div>'
+    html=f"""<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(brand)} — Nelvi Canvas</title>{FONTS_LINK}<style>{css}</style><style>.wrap{{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden}} @media(max-width:1120px){{.wrap{{width:100%;margin:0;border-radius:0}}}}</style></head><body><div class="wrap">{inner}</div></body></html>"""
+    # сохраняем как сайт
+    site = site_prev or {"brand": brand, "kind": "canvas", "theme": theme, "sections": []}
+    site["kind"]="canvas"
+    site["canvas_blocks"]=blocks
+    generator._save_all(job_id, site, html, False)
+    base=str(request.base_url).rstrip("/")
+    return {"ok": True, "url": f"{base}/api/site/{job_id}", "html_len": len(html)}
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 

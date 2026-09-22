@@ -168,23 +168,45 @@ function loadTemplate(t){
   pushHist(); render(); save(false);
 }
 async function importLandingReal(){
-  const id=prompt('ID лендинга для импорта (например из /api/site/ID или оставь пустым для демо):','');
+  const id=prompt('ID лендинга для импорта (например a1b2c3 из /api/site/a1b2c3 — или пусто для демо):','');
   if(!id){ importLanding(); return; }
   try{
-    const r=await fetch('/api/site/'+encodeURIComponent(id));
-    if(!r.ok) throw new Error('Сайт не найден');
-    // try fetch JSON via generator endpoint? fallback: parse HTML is hard, so fetch via /api/canvas or site dict
-    // we expose site dict via /api/site/{id} HTML only, so fetch via app.py's generator.get_site_dict is not exposed directly.
-    // Try /api/job/{id} to get site? We'll try to fetch site JSON via hidden endpoint: use /api/site/{id} html parse is heavy.
-    // For MVP: just ask for JSON via prompt
-    const txt=await r.text();
-    toast('Импорт: HTML получен, парсим заголовки...');
-    // naive parse: extract title/h2
-    const m=txt.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-    const h1=m?m[1].trim():'Импортированный лендинг';
-    blocks.push({id:uid(),type:'heading',x:48,y:720,w:600,h:64,z:30,props:{text:h1,size:26,color:'#2B2B36'}});
-    blocks.push({id:uid(),type:'text',x:48,y:800,w:600,h:80,z:31,props:{text:'Импортировано из '+id+' — дальше правь свободно',size:13,color:'#7A7A8E'}});
-    pushHist(); render(); save(false);
+    const r=await fetch('/api/site/'+encodeURIComponent(id)+'/json');
+    if(!r.ok) throw new Error('Сайт не найден (нужен JSON)');
+    const site=await r.json();
+    const y0 = 720;
+    let y = y0;
+    const add = (b)=>{ blocks.push(b); };
+    // brand/hero
+    if(site.brand){
+      add({id:uid(),type:'heading',x:48,y:y,w:920,h:48,z:30,props:{text:site.brand, size:32, color:'#2B2B36'}}); y+=64;
+    }
+    if(site.tagline){
+      add({id:uid(),type:'text',x:48,y:y,w:720,h:48,z:31,props:{text:site.tagline, size:14, color:'#7A7A8E'}}); y+=64;
+    }
+    // sections
+    for(const s of (site.sections||[]).slice(0,6)){
+      const title = s.title || s.kicker || '';
+      if(title){
+        add({id:uid(),type:'heading',x:48,y:y,w:680,h:36,z:32,props:{text:title, size:20, color:'#2B2B36'}}); y+=44;
+      }
+      if(s.subtitle) { add({id:uid(),type:'text',x:48,y:y,w:640,h:48,z:33,props:{text:s.subtitle, size:13, color:'#7A7A8E'}}); y+=60; }
+      if(s.items){
+        for(let i=0;i<Math.min(s.items.length,4);i++){
+          const it=s.items[i];
+          const name=it.name||it.title||it.q||'Пункт '+(i+1);
+          const desc=it.desc||it.a||it.text||'';
+          const txt=name + (desc?'\n'+desc:'');
+          add({id:uid(),type:'text',x:48 + (i%2)*360, y:y + Math.floor(i/2)*110, w:320, h:90, z:34+i, props:{text: txt, size:12, color:'#2B2B36', bg:'#fff', border:'#E7E5F0'}});
+        }
+        y+= (Math.ceil(Math.min(s.items.length,4)/2))*110 + 20;
+      }
+      if(s.text) { add({id:uid(),type:'text',x:48,y:y,w:640,h:60,z:35,props:{text:s.text, size:13, color:'#7A7A8E'}}); y+=80; }
+      if(y>1400) break;
+    }
+    // ensure at least something
+    if(blocks.length===0) throw new Error('Пустой сайт');
+    pushHist(); render(); save(false); toast('Импорт: '+site.brand+' → '+blocks.length+' блоков');
   }catch(e){ alert('Импорт не удался: '+e.message); importLanding(); }
 }
 function importLanding(){
@@ -207,7 +229,17 @@ function renderExportHtml(){
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#FAF9F7;font-family:Inter,sans-serif}.wrap{position:relative;width:1120px;min-height:720px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 18px 50px rgba(43,43,54,.12);overflow:hidden} </style></head><body><div class="wrap">${inner}</div></body></html>`;
 }
 function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function publish(){ save(); toast('Опубликовано (демо): ZIP через Экспорт'); }
+async function publish(){
+  save(false);
+  const id='demo-canvas';
+  try{
+    const r=await fetch('/api/canvas/'+id+'/publish', {method:'POST'});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    toast('Опубликовано → '+j.url);
+    window.open(j.url, '_blank');
+  }catch(e){ toast('Ошибка публикации: '+e.message); }
+}
 
 function render(){
   stage.innerHTML='<div class="guides"><div class="guide-v" id="gv"></div><div class="guide-h" id="gh"></div></div>';
