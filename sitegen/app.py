@@ -474,16 +474,40 @@ def site_sitemap(job_id: str, request: Request):
     if not site:
         return HTMLResponse("not found", status_code=404)
     base = str(request.base_url).rstrip("/")
-    # prefer public Pages url if available, else base
     loc = f"{base}/api/site/{job_id}"
-    # for SEO: include section anchors for landing (Google ignores fragments but useful for hint)
     urls = [loc]
-    # add anchors for landing sections (optional, sitemap spec allows but fragments usually ignored)
-    # keep single entry for simplicity
+    # product pages for SEO — только товары/услуги (services/products/prices), без дублей
+    try:
+        seen = set()
+        for s in (site.get("sections") or []):
+            if s.get("type") not in ("products", "services", "prices"):
+                continue
+            items = s.get("items") or []
+            for idx, it in enumerate(items[:12]):
+                if not isinstance(it, dict):
+                    continue
+                name = (it.get("name") or it.get("title") or "").strip()
+                if not name:
+                    continue
+                slug = re.sub(r"[^\w]+", "-", name.lower(), flags=re.UNICODE).strip("-")[:60] or f"item-{idx}"
+                if not slug:
+                    slug = f"item-{idx}"
+                key = slug.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                urls.append(f"{base}/api/site/{job_id}/p/{slug}")
+                if len(urls) >= 21:
+                    break
+            if len(urls) >= 21:
+                break
+    except Exception:
+        pass
     lastmod = time.strftime("%Y-%m-%d")
+    url_entries = "\n".join(f"  <url><loc>{u}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>{'0.9' if u==loc else '0.7'}</priority></url>" for u in urls)
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+{url_entries}
 </urlset>"""
     from fastapi.responses import Response
     return Response(content=xml.encode(), media_type="application/xml; charset=utf-8")
