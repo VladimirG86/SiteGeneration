@@ -212,15 +212,8 @@ def _llm_site(answers: dict, theme_mode: str, accent: str) -> dict:
 
 
 def _llm_taplink(answers: dict, theme_mode: str, accent: str) -> dict:
-    acc = design.ACCENTS[accent]
-    messages = prompts.build_taplink_messages(answers, theme_mode, acc["label"], acc["main"])
-    raw = llm.chat(messages, temperature=0.5, max_tokens=8000, timeout=120)
-    site = llm.extract_json(raw)
-    site = chat_ops.normalize_site(site)
-    site["kind"] = "taplink"
-    if not site.get("brand") or not site.get("sections"):
-        raise ValueError("Модель вернула некорректную структуру taplink")
-    return site
+    # DEPRECATED: taplink убран — QR-визитка покрывает мультиссылку; alias к vcard
+    return _llm_vcard(answers, theme_mode, accent)
 
 
 def _llm_vcard(answers: dict, theme_mode: str, accent: str) -> dict:
@@ -243,7 +236,9 @@ def run_job(job_id: str):
     theme_mode = job["theme"]["mode"]
     accent = job["theme"]["accent"]
     kind = (job.get("site_kind") or job.get("kind") or "landing").lower()
-    if kind not in ("landing", "taplink", "vcard"):
+    if kind == "taplink":
+        kind = "vcard"
+    if kind not in ("landing", "vcard"):
         kind = "landing"
 
     def finish_stage(min_seconds=1.4):
@@ -259,16 +254,12 @@ def run_job(job_id: str):
         if llm.is_configured():
             _set_stage(job, 1)
             try:
-                if kind == "taplink":
-                    site = _llm_taplink(answers, theme_mode, accent)
-                elif kind == "vcard":
+                if kind == "vcard":
                     site = _llm_vcard(answers, theme_mode, accent)
                 else:
                     site = _llm_site(answers, theme_mode, accent)
             except Exception as e:  # noqa: BLE001
-                if kind == "taplink":
-                    site = demo_content.build_taplink_site(answers, theme_mode, accent)
-                elif kind == "vcard":
+                if kind == "vcard":
                     site = demo_content.build_vcard_site(answers, theme_mode, accent)
                 else:
                     site = demo_content.build_site(answers, theme_mode, accent)
@@ -277,9 +268,7 @@ def run_job(job_id: str):
             _set_stage(job, 2)
             finish_stage(0.6)
         else:
-            if kind == "taplink":
-                site = demo_content.build_taplink_site(answers, theme_mode, accent)
-            elif kind == "vcard":
+            if kind == "vcard":
                 site = demo_content.build_vcard_site(answers, theme_mode, accent)
             else:
                 site = demo_content.build_site(answers, theme_mode, accent)
@@ -321,7 +310,9 @@ def _set_stage(job, idx):
 
 
 def start_job(answers: dict, theme_mode: str, accent: str, site_kind: str = "landing") -> str:
-    if site_kind not in ("landing", "taplink", "vcard"):
+    if site_kind == "taplink":
+        site_kind = "vcard"
+    if site_kind not in ("landing", "vcard"):
         site_kind = "landing"
     job_id = uuid.uuid4().hex[:10]
     with _LOCK:

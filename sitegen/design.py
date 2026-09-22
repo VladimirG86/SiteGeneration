@@ -205,7 +205,7 @@ def build_css(mode: str, accent: str) -> str:
     .prod-row{{display:flex;align-items:center;margin:12px 0 14px}}
     .prod .btn{{width:100%;padding:10px 20px;font-size:14px;border-radius:10px}}
 
-    /* ---------- taplink / vcard — Nelvi 520px center ---------- */
+    /* ---------- vcard (QR + ссылки) — Nelvi 520px center ---------- */
     .tap-page{{background:var(--bg);min-height:100vh}}
     .tap-wrap{{max-width:520px;margin:0 auto;padding:28px 18px 40px}}
     .tap-profile{{text-align:center;padding:28px 20px 10px}}

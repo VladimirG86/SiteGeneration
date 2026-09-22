@@ -133,7 +133,7 @@ class GenerateIn(BaseModel):
     theme_mode: str = Field(default="light")
     accent: str = Field(default="purple")
     email: str = Field(default="", max_length=120)
-    kind: str = Field(default="landing", max_length=20)  # landing | taplink | vcard
+    kind: str = Field(default="landing", max_length=20)  # landing | vcard (taplink → vcard alias, QR-визитка покрывает мультиссылку)
 
 
 class LeadIn(BaseModel):
@@ -197,7 +197,7 @@ def config():
         "auth": auth_enabled(),
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
-        "kinds": ["landing", "taplink", "vcard"],
+        "kinds": ["landing", "vcard"],
         "s3": s3_on,
         "s3_bucket": s3_bucket,
         "postgres": pg_on,
@@ -242,7 +242,10 @@ def generate(body: GenerateIn, request: Request):
     if body.accent not in design.ACCENTS:
         body.accent = "purple"
     kind = (body.kind or "landing").strip().lower()
-    if kind not in ("landing", "taplink", "vcard"):
+    # taplink убран: QR-визитка (vcard) покрывает мультиссылку; старый kind мапим в vcard
+    if kind == "taplink":
+        kind = "vcard"
+    if kind not in ("landing", "vcard"):
         kind = "landing"
     answers = {
         "Название": body.name,

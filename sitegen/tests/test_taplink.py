@@ -2,15 +2,16 @@ import json, time
 import demo_content, sections, chat, generator, llm, app as appmod
 
 def test_taplink_demo():
+    # taplink убран — build_taplink_site alias → vcard (QR + ссылки)
     site = demo_content.build_taplink_site(
         {"Название": "Иван Петров", "О бизнесе": "Фотограф в Казани", "Услуги/товары": "Портфолио - https://ivan.example.com\nЗапись - https://t.me/ivan", "Дополнительно": "Пишите"},
         "light", "blue")
-    assert site["kind"] == "taplink"
+    assert site["kind"] == "vcard"
     assert any(s["type"] == "profile" for s in site["sections"])
     assert any(s["type"] == "tap_links" for s in site["sections"])
-    # normalize
+    # normalize — taplink alias → vcard
     site = chat.normalize_site(site)
-    assert site["kind"] == "taplink"
+    assert site["kind"] == "vcard"
     html = sections.render_page(site, site_id="testtap")
     assert "tap-link" in html
     assert "tap-profile" in html
@@ -46,13 +47,13 @@ def test_sanitize_new_types():
     assert chat.sanitize_section({"type": "tap_text"}) is None
 
 def test_generate_taplink_api(client, tmp_path, monkeypatch):
-    # force demo mode
+    # taplink убран — kind taplink мапится в vcard (QR-визитка с ссылками)
     monkeypatch.setattr(llm, "is_configured", lambda: False)
     appmod._RATE.clear()
     r = client.post("/api/generate", json={"name": "Иван Петров", "about": "Фотограф в Казани, снимаю свадьбы и портреты", "products": "Портфолио - https://example.com\nЗапись - https://t.me/ivan", "advantages": "", "extras": "", "theme_mode": "light", "accent": "blue", "email": "a@b.ru", "kind": "taplink"})
     assert r.status_code == 200, r.text
     jid = r.json()["job_id"]
-    assert r.json()["kind"] == "taplink"
+    assert r.json()["kind"] == "vcard"
     for _ in range(30):
         jr = client.get(f"/api/job/{jid}").json()
         if jr["status"] != "running":
@@ -60,7 +61,7 @@ def test_generate_taplink_api(client, tmp_path, monkeypatch):
         time.sleep(0.2)
     assert jr["status"] == "done"
     site = generator.get_site_dict(jid)
-    assert site["kind"] == "taplink"
+    assert site["kind"] == "vcard"
     assert any(s["type"] == "tap_links" for s in site["sections"])
     html = generator.get_site_html(jid)
     assert "tap-link" in html
@@ -87,7 +88,7 @@ def test_generate_vcard_api(client, tmp_path, monkeypatch):
 def test_chat_edit_taplink(client, tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "is_configured", lambda: False)
     appmod._RATE.clear()
-    r = client.post("/api/generate", json={"name": "Test", "about": "Тест taplink для редактирования ссылок", "products": "Link1 - https://a.com", "advantages": "", "extras": "", "theme_mode": "light", "accent": "purple", "email": "c@d.ru", "kind": "taplink"})
+    r = client.post("/api/generate", json={"name": "Test", "about": "Тест vcard с ссылками для редактирования", "products": "Link1 - https://a.com", "advantages": "", "extras": "", "theme_mode": "light", "accent": "purple", "email": "c@d.ru", "kind": "vcard"})
     jid = r.json()["job_id"]
     for _ in range(30):
         jr = client.get(f"/api/job/{jid}").json()

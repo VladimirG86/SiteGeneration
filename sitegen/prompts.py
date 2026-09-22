@@ -209,17 +209,13 @@ def build_chips_messages(answers: dict):
 
 
 def build_taplink_messages(answers: dict, theme_mode: str, accent_name: str, accent_hex: str):
-    answers_text = "\n".join(f"- {k}: {v}" for k, v in answers.items() if v)
-    guide = "НИША: мультиссылка Taplink. Тон живой, дружелюбный, коротко. Делаем аватар-профиль + кликабельные ссылки (каждая — отдельная кнопка). Обязательно 5-8 ссылок с понятными названиями и иконками. Соцсети — 4 штуки. Мессенджеры — WhatsApp/Telegram/Звонок."
-    return [
-        {"role": "system", "content": "Ты — копирайтер Taplink. Отвечай ТОЛЬКО валидным JSON по схеме Taplink, без markdown. Пиши по-русски, обращение на «вы», конкретно."},
-        {"role": "user", "content": f"Сделай Taplink страницу (мультиссылку) как на taplink.ru. Тема: {theme_mode}, акцент {accent_name} ({accent_hex}).\n\nАНКЕТА:\n{answers_text}\n\n{guide}\n\nСХЕМА JSON:\n{TAPLINK_SCHEMA}"},
-    ]
+    # DEPRECATED: taplink убран — мапим в QR-визитку (vcard) которая теперь включает мультиссылку
+    return build_vcard_messages(answers, theme_mode, accent_name, accent_hex)
 
 
 def build_vcard_messages(answers: dict, theme_mode: str, accent_name: str, accent_hex: str):
     answers_text = "\n".join(f"- {k}: {v}" for k, v in answers.items() if v)
-    guide = "НИША: QR-визитка MyQRcards. Тон деловой, лаконичный. Делаем профиль + QR-код (vCard) + контакты (тел/email/компания/адрес) + соцсети. QR data — vCard строка с FN/TEL/EMAIL."
+    guide = "НИША: QR-визитка MyQRcards + мультиссылка (объединено, QR-визитка покрывает taplink). Тон деловой, лаконичный, дружелюбный. Делаем профиль + QR-код (vCard) + (если в анкете есть ссылки — блок tap_links 3-8 кнопок) + контакты (тел/email/компания/адрес) + соцсети + мессенджеры (WhatsApp/Telegram/Звонок). QR data — vCard строка с FN/TEL/EMAIL."
     return [
         {"role": "system", "content": "Ты — копирайтер QR-визиток. Отвечай ТОЛЬКО валидным JSON по схеме VCard, без markdown. Пиши по-русски."},
         {"role": "user", "content": f"Сделай QR-визитку как на myqrcards.com. Тема: {theme_mode}, акцент {accent_name} ({accent_hex}).\n\nАНКЕТА:\n{answers_text}\n\n{guide}\n\nСХЕМА JSON:\n{VCARD_SCHEMA}"},
@@ -258,7 +254,8 @@ def build_import_messages(digest: dict, theme_mode: str, accent_name: str, accen
     ]
 
 
-TAPLINK_SCHEMA = """{
+TAPLINK_SCHEMA = """# DEPRECATED (оставлен для обратной совместимости): taplink убран, используйте VCARD_SCHEMA (QR-визитка + ссылки)
+{
   "brand": "Имя человека/проекта",
   "tagline": "короткий слоган до 40 симв",
   "phone": "+7 (XXX) XXX-XX-XX",
@@ -285,9 +282,12 @@ VCARD_SCHEMA = """{
   "sections": [
     {"type":"profile","name":"Имя","subtitle":"Должность · Компания","bio":"1-2 предложения","badges":["QR-визитка"]},
     {"type":"qrcode","kicker":"QR-код","title":"Сохраните контакт","text":"Наведите камеру","data":"vCard или https://...","note":"пометка"},
+    {"type":"tap_links","kicker":"Ссылки","title":"Мои ссылки","items":[{"title":"Текст кнопки","url":"https://...","subtitle":"пояснение","icon":"🔗","style":"filled"}]},
     {"type":"vcard","kicker":"Контакты","title":"Как связаться","items":[{"label":"Телефон","value":"+7...","href":"tel:...","icon":"phone"}]},
     {"type":"socials","kicker":"Соцсети","title":"Я в соцсетях","items":[{"platform":"instagram","url":"https://...","label":"Instagram"}]},
-    {"type":"tap_text","kicker":"","title":"","text":"текст"}
+    {"type":"messengers","kicker":"Связаться","title":"Напишите мне","items":[{"platform":"whatsapp","url":"https://wa.me/...","label":"WhatsApp","handle":"+7 ..."}]},
+    {"type":"tap_text","kicker":"","title":"","text":"текст"},
+    {"type":"contacts","kicker":"Заявка","title":"Оставьте контакты","text":"что будет после","fields":["name","phone","comment"]}
   ]
 }"""
 

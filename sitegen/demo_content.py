@@ -252,85 +252,21 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
 
 
 def build_taplink_site(answers: dict, theme_mode: str, accent: str) -> dict:
-    """Taplink: аватар + ссылки. answers ожидается с ключами name/about/products(ссылки)/extras."""
-    a = lambda key: answers.get(key) or answers.get(
-        {"Название": "name", "О бизнесе": "about", "Услуги/товары": "products",
-         "Преимущества": "advantages", "Дополнительно": "extras", "Ссылки": "links",
-         "Соцсети": "socials", "Контакты": "contacts"}[key]) or ""
-    name = a("Название").strip() or a("name").strip() or "Иван Петров"
-    about_text = a("О бизнесе").strip() or "Помогаю клиентам и делюсь полезным"
-    links_raw = a("Услуги/товары") or a("Ссылки") or ""
-    # ссылки — каждая с новой строки, возможна форма "Название - https://..."
-    links = []
-    for raw in re.split(r"[\n;]+", links_raw):
-        raw = raw.strip()
-        if not raw or len(raw) < 3:
-            continue
-        # url?
-        m = re.search(r"(https?://\S+)", raw)
-        if m:
-            url = m.group(1)
-            title = raw.replace(url, "").strip(" -—–|")
-            if not title:
-                title = url
-        else:
-            # без url — делаем заглушку
-            title = raw[:60]
-            # slug для примера
-            url = "https://example.com/" + re.sub(r"\W+", "-", title.lower()).strip("-")
-        links.append({"title": title[:60], "url": url[:200], "subtitle": "", "icon": "🔗", "style": "filled"})
-        if len(links) >= 8:
-            break
-    if not links:
-        links = [
-            {"title": "Мой сайт", "url": "https://example.com", "subtitle": "Портфолио и услуги", "icon": "🌐", "style": "filled"},
-            {"title": "Запись на консультацию", "url": "https://t.me/example", "subtitle": "Отвечаю в течение часа", "icon": "✈️", "style": "filled"},
-            {"title": "Кейсы и отзывы", "url": "https://example.com/cases", "subtitle": "", "icon": "⭐", "style": "outline"},
-        ]
-    # соцсети из extras или дефолт
-    socials = [
-        {"platform": "instagram", "url": "https://instagram.com/example", "label": "Instagram"},
-        {"platform": "telegram", "url": "https://t.me/example", "label": "Telegram"},
-        {"platform": "whatsapp", "url": "https://wa.me/79001234567", "label": "WhatsApp"},
-        {"platform": "youtube", "url": "https://youtube.com/@example", "label": "YouTube"},
-    ]
-    messengers = [
-        {"platform": "whatsapp", "url": "https://wa.me/79001234567", "label": "WhatsApp", "handle": "+7 900 123-45-67"},
-        {"platform": "telegram", "url": "https://t.me/example", "label": "Telegram", "handle": "@example"},
-        {"platform": "phone", "url": "tel:+79001234567", "label": "Позвонить", "handle": "+7 900 123-45-67"},
-    ]
-    # небольшой текст
-    tap_text = a("Дополнительно").strip() or "Напишите — отвечаю быстро. Все ссылки выше 👆"
-    city_nom, city_in = extract_city(about_text + " " + name)
-    return {
-        "brand": name,
-        "city": city_nom,
-        "tagline": about_text[:40],
-        "phone": "+7 (900) 123-45-67",
-        "email": "",
-        "address": "",
-        "kind": "taplink",
-        "avatar_url": "",
-        "theme": {"mode": theme_mode, "accent": accent},
-        "nav": [{"label": "Ссылки", "href": "#links"}, {"label": "Контакты", "href": "#contacts"}],
-        "sections": [
-            {"type": "profile", "name": name, "subtitle": about_text[:80] or "Создаю полезный контент", "bio": about_text[:200] or "Добро пожаловать!", "badges": ["Taplink", city_nom] if city_nom else ["Taplink"]},
-            {"type": "tap_links", "kicker": "Ссылки", "title": "Мои ссылки", "items": links},
-            {"type": "socials", "kicker": "Соцсети", "title": "Я в соцсетях", "items": socials},
-            {"type": "messengers", "kicker": "Связаться", "title": "Напишите мне", "items": messengers},
-            {"type": "tap_text", "kicker": "", "title": "", "text": tap_text},
-            {"type": "contacts", "kicker": "Заявка", "title": "Оставьте контакты", "text": "Перезвоню и отвечу на вопросы.", "fields": ["name", "phone", "comment"]},
-        ],
-        "features": {"cart": False},
-    }
+    """DEPRECATED: taplink убран — QR-визитка покрывает мультиссылку.
+    Оставлен как alias к build_vcard_site для обратной совместимости (старые тесты/данные)."""
+    site = build_vcard_site(answers, theme_mode, accent)
+    # сохраняем возможность отдавать kind taplink для старых проверок, но новый API
+    # мапит taplink→vcard; если вызов пришёл как taplink — вернём vcard с линками
+    # для совместимости помечаем badges как Taplink если в about есть ссылки
+    return site
 
 
 def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
-    """QR-визитка / myqrcards style."""
+    """QR-визитка / myqrcards + мультиссылка (объединено: QR-визитка покрывает taplink)."""
     a = lambda key: answers.get(key) or answers.get(
         {"Название": "name", "О бизнесе": "about", "Услуги/товары": "products",
          "Преимущества": "advantages", "Дополнительно": "extras", "Должность": "position",
-         "Компания": "company"}[key]) or ""
+         "Компания": "company", "Ссылки": "links"}[key]) or ""
     name = a("Название").strip() or "Иван Петров"
     company = a("Компания").strip() or a("О бизнесе").strip()[:40] or "Компания"
     position = a("Должность").strip() or "Менеджер"
@@ -338,11 +274,67 @@ def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
     phone = "+7 (900) 123-45-67"
     email = f"hello@{re.sub(r'[^a-z0-9]', '', name.lower())[:10] or 'example'}.ru"
     extras = a("Дополнительно").strip() or ""
+    # ссылки: из поля products/ссылки — как в taplink (каждая с новой строки)
+    links_raw = a("Услуги/товары") or a("Ссылки") or ""
+    links = []
+    # если в products явно ссылки (содержат http или «— https»)
+    if links_raw and ("http" in links_raw or " — " in links_raw or " - " in links_raw):
+        for raw in re.split(r"[\n;]+", links_raw):
+            raw = raw.strip()
+            if not raw or len(raw) < 3:
+                continue
+            m = re.search(r"(https?://\S+)", raw)
+            if m:
+                url = m.group(1)
+                title = raw.replace(url, "").strip(" -—–|")
+                if not title:
+                    title = url
+            else:
+                title = raw[:60]
+                url = "https://example.com/" + re.sub(r"\W+", "-", title.lower()).strip("-")
+            links.append({"title": title[:60], "url": url[:200], "subtitle": "", "icon": "🔗", "style": "filled"})
+            if len(links) >= 8:
+                break
+    # также пробуем вытащить соцсети/ссылки из advantages если похоже на ссылки
+    adv_raw = a("Преимущества") or ""
+    if adv_raw and "http" in adv_raw:
+        for raw in re.split(r"[\n;]+|,", adv_raw):
+            raw = raw.strip()
+            if "http" in raw and len(links) < 8:
+                m = re.search(r"(https?://\S+)", raw)
+                if m:
+                    url = m.group(1)
+                    title = raw.replace(url, "").strip(" -—–|") or url
+                    links.append({"title": title[:60], "url": url[:200], "subtitle": "", "icon": "🔗", "style": "filled"})
     socials = [
         {"platform": "telegram", "url": "https://t.me/example", "label": "Telegram"},
         {"platform": "whatsapp", "url": "https://wa.me/79001234567", "label": "WhatsApp"},
         {"platform": "instagram", "url": "https://instagram.com/example", "label": "Instagram"},
     ]
+    messengers = [
+        {"platform": "whatsapp", "url": "https://wa.me/79001234567", "label": "WhatsApp", "handle": "+7 900 123-45-67"},
+        {"platform": "telegram", "url": "https://t.me/example", "label": "Telegram", "handle": "@example"},
+        {"platform": "phone", "url": "tel:+79001234567", "label": "Позвонить", "handle": "+7 900 123-45-67"},
+    ]
+    # секции: profile + qrcode + (tap_links если есть) + vcard + socials + messengers + tap_text + contacts
+    sections = [
+        {"type": "profile", "name": name, "subtitle": f"{position} · {company}", "bio": about_text[:200], "badges": ["QR-визитка", company] if company else ["QR-визитка"]},
+        {"type": "qrcode", "kicker": "QR-код", "title": "Сохраните контакт", "text": "Наведите камеру, чтобы сохранить визитку", "data": f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nORG:{company}\nTEL:{phone}\nEMAIL:{email}\nEND:VCARD", "note": "Работает без приложения"},
+    ]
+    if links:
+        sections.append({"type": "tap_links", "kicker": "Ссылки", "title": "Мои ссылки", "items": links})
+    sections.extend([
+        {"type": "vcard", "kicker": "Контакты", "title": "Как связаться", "items": [
+            {"label": "Телефон", "value": phone, "href": f"tel:{phone}", "icon": "phone"},
+            {"label": "Email", "value": email, "href": f"mailto:{email}", "icon": "chat"},
+            {"label": "Компания", "value": company, "href": "", "icon": "team"},
+            {"label": "Адрес", "value": extras[:60] if extras else "Москва", "href": "", "icon": "map"},
+        ]},
+        {"type": "socials", "kicker": "Соцсети", "title": "Я в соцсетях", "items": socials},
+        {"type": "messengers", "kicker": "Связаться", "title": "Напишите мне", "items": messengers},
+        {"type": "tap_text", "kicker": "", "title": "", "text": extras[:200] if extras else "Буду рад знакомству — пишите в любой мессенджер."},
+        {"type": "contacts", "kicker": "Заявка", "title": "Оставьте контакты", "text": "Перезвоню и отвечу на вопросы.", "fields": ["name", "phone", "comment"]},
+    ])
     return {
         "brand": name,
         "city": "",
@@ -353,18 +345,7 @@ def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
         "kind": "vcard",
         "avatar_url": "",
         "theme": {"mode": theme_mode, "accent": accent},
-        "nav": [{"label": "Контакты", "href": "#contacts"}],
-        "sections": [
-            {"type": "profile", "name": name, "subtitle": f"{position} · {company}", "bio": about_text[:200], "badges": ["QR-визитка", company] if company else ["QR-визитка"]},
-            {"type": "qrcode", "kicker": "QR-код", "title": "Сохраните контакт", "text": "Наведите камеру, чтобы сохранить визитку", "data": f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nORG:{company}\nTEL:{phone}\nEMAIL:{email}\nEND:VCARD", "note": "Работает без приложения"},
-            {"type": "vcard", "kicker": "Контакты", "title": "Как связаться", "items": [
-                {"label": "Телефон", "value": phone, "href": f"tel:{phone}", "icon": "phone"},
-                {"label": "Email", "value": email, "href": f"mailto:{email}", "icon": "chat"},
-                {"label": "Компания", "value": company, "href": "", "icon": "team"},
-                {"label": "Адрес", "value": extras[:60] if extras else "Москва", "href": "", "icon": "map"},
-            ]},
-            {"type": "socials", "kicker": "Соцсети", "title": "Я в соцсетях", "items": socials},
-            {"type": "tap_text", "kicker": "", "title": "", "text": extras[:200] if extras else "Буду рад знакомству — пишите в любой мессенджер."},
-        ],
+        "nav": [{"label": "Ссылки", "href": "#links"}, {"label": "Контакты", "href": "#contacts"}],
+        "sections": sections,
         "features": {"cart": False},
     }

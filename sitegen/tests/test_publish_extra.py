@@ -47,7 +47,7 @@ def test_vcard_endpoint(client, tmp_path, monkeypatch):
 def test_publish_static(client, tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "is_configured", lambda: False)
     appmod._RATE.clear()
-    r = client.post("/api/generate", json={"name": "Static Pub", "about": "Тест для публикации на хостинг", "products": "Услуга", "advantages": "", "extras": "", "theme_mode": "light", "accent": "purple", "email": "c@d.ru", "kind": "taplink"})
+    r = client.post("/api/generate", json={"name": "Static Pub", "about": "Тест для публикации на хостинг", "products": "Услуга", "advantages": "", "extras": "", "theme_mode": "light", "accent": "purple", "email": "c@d.ru", "kind": "vcard"})
     jid = r.json()["job_id"]
     for _ in range(30):
         jr = client.get(f"/api/job/{jid}").json()

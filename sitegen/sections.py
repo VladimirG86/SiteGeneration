@@ -652,8 +652,9 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
     kind = (site.get("kind") or "landing").lower()
     site["_job"] = site_id  # для подстановки изображений (data URI) в секции
 
-    # taplink / vcard — узкая центрированная страница
-    if kind in ("taplink", "vcard"):
+    # vcard (объединена с taplink — QR-визитка покрывает мультиссылку)
+    # taplink оставлен как alias для старых сайтов
+    if kind in ("vcard", "taplink"):
         inner_parts = []
         for s in site.get("sections", []):
             t = s.get("type")

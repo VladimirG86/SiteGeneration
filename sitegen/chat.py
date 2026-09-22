@@ -41,7 +41,7 @@ SECTION_DOC = """- hero: {"type":"hero","title":"H1 до 70 симв","subtitle"
 - faq: {"type":"faq","kicker":"FAQ","title":"Частые вопросы","items":[{"q":"вопрос","a":"ответ"}]} (4-6)
 - contacts: {"type":"contacts","kicker":"Контакты","title":"...","text":"что будет после заявки","fields":["name","phone","comment"]}
 - products (каталог магазина): {"type":"products","kicker":"Каталог","title":"...","items":[{"name":"товар","price":"1 990 ₽ или от 990 ₽","desc":"1 предложение","badge":"Хит/Новинка/-20%/пусто","emoji":"один эмодзи"}]} (4-12)
-- profile (taplink/vcard): {"type":"profile","name":"Имя","subtitle":"роль/город","bio":"1-2 предложения","badges":["бейджи до 20 симв"],"avatar_url":"https://... или пусто"}
+- profile (vcard): {"type":"profile","name":"Имя","subtitle":"роль/город","bio":"1-2 предложения","badges":["бейджи до 20 симв"],"avatar_url":"https://... или пусто"}
 - tap_links: {"type":"tap_links","kicker":"Ссылки","title":"заголовок","items":[{"title":"Текст кнопки","url":"https://...","subtitle":"пояснение","icon":"эмодзи","style":"filled|outline"}]} (4-12)
 - socials: {"type":"socials","kicker":"Соцсети","title":"...","items":[{"platform":"instagram|telegram|whatsapp|youtube|vk|tiktok","url":"https://...","label":"Instagram"}]} (3-10)
 - messengers: {"type":"messengers","kicker":"Связаться","title":"...","items":[{"platform":"whatsapp|telegram|viber|phone","url":"https://...","label":"WhatsApp","handle":"+7 ..."}]} (2-6)
@@ -418,7 +418,7 @@ def normalize_site(site: dict) -> dict:
         "phone": _s(site.get("phone"), 30),
         "email": _s(site.get("email"), 60),
         "address": _s(site.get("address"), 120),
-        "kind": _s(site.get("kind"), 20).lower() if _s(site.get("kind"), 20).lower() in ("landing","taplink","vcard") else "landing",
+        "kind": (_s(site.get("kind"), 20).lower() if _s(site.get("kind"), 20).lower() in ("landing","vcard") else ("vcard" if _s(site.get("kind"), 20).lower()=="taplink" else "landing")),
         "avatar_url": _s(site.get("avatar_url"), 300),
         "avatar_image": bool(site.get("avatar_image")),
         "theme": {
