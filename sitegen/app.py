@@ -1129,6 +1129,36 @@ try:
 except Exception:
     CANVAS_DIR = generator.SITES_DIR
 
+CANVAS_HISTORY_MAX=20
+def _canvas_hist_path(job_id): return os.path.join(CANVAS_DIR, f"canvas-{job_id}.history.json")
+def _canvas_load_history(job_id):
+    hp=_canvas_hist_path(job_id)
+    if os.path.exists(hp):
+        try:
+            with open(hp, encoding="utf-8") as f: d=json.load(f)
+            return d if isinstance(d, list) else []
+        except: return []
+    return []
+def _canvas_push_history(job_id, blocks, bg=None, h=None):
+    hist=_canvas_load_history(job_id)
+    snap={"ts": int(time.time()), "blocks": blocks}
+    if bg: snap["bg"]=bg
+    if h: snap["h"]=h
+    # avoid duplicate consecutive
+    import json as _j
+    if hist and _j.dumps(hist[-1].get("blocks"), sort_keys=True)==_j.dumps(blocks, sort_keys=True) and hist[-1].get("bg")==bg and hist[-1].get("h")==h:
+        return
+    hist.append(snap)
+    hist=hist[-CANVAS_HISTORY_MAX:]
+    try:
+        with open(_canvas_hist_path(job_id),"w",encoding="utf-8") as f: _j.dump(hist,f,ensure_ascii=False)
+        try:
+            try: import storage as st
+            except ImportError: import sitegen.storage as st
+            if st.is_s3(): st.save_bytes(f"canvas/canvas-{job_id}.history.json", _j.dumps(hist,ensure_ascii=False).encode())
+        except: pass
+    except: pass
+
 # ---- helpers for canvas html ----
 def _canvas_esc(s): return str(s or "").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
 def _canvas_build_html(job_id: str, blocks: list, site_prev: dict|None = None):
@@ -1287,6 +1317,22 @@ def save_canvas(job_id: str, body: CanvasIn, request: Request):
     data = {"blocks": body.blocks}
     if bg: data["bg"]=bg
     if h: data["h"]=h
+    # history: save previous blocks if changed
+    try:
+        _old_blocks=None
+        _old_bg=None; _old_h=None
+        if os.path.exists(p):
+            import json as _hj
+            with open(p, encoding="utf-8") as _hf:
+                _od=_hj.load(_hf)
+                _old_blocks=_od.get("blocks")
+                _old_bg=_od.get("bg")
+                _old_h=_od.get("h")
+        if _old_blocks is not None:
+            import json as _j3
+            if _j3.dumps(_old_blocks, sort_keys=True)!=_j3.dumps(body.blocks, sort_keys=True) or _old_bg!=bg or _old_h!=h:
+                _canvas_push_history(job_id, _old_blocks, _old_bg, _old_h)
+    except: pass
     try:
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
@@ -1308,8 +1354,10 @@ def delete_canvas(job_id: str, request: Request):
     if not _valid_job_id(job_id):
         return JSONResponse({"error": "bad id"}, status_code=400)
     p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    hp=_canvas_hist_path(job_id)
     try:
         if os.path.exists(p): os.remove(p)
+        if os.path.exists(hp): os.remove(hp)
         # also remove site files if they are canvas kind
         site=generator.get_site_dict(job_id)
         if site and site.get("kind")=="canvas":
@@ -1383,6 +1431,47 @@ def duplicate_canvas(job_id: str, request: Request):
         return {"ok": True, "id": new_id, "url": f"{base}/canvas?id={new_id}"}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/canvas/{job_id}/history")
+def canvas_history(job_id: str):
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    hist=_canvas_load_history(job_id)
+    # return summary without full blocks to keep payload light, but include blocks count
+    out=[]
+    for i, snap in enumerate(hist):
+        out.append({"idx": i, "ts": snap.get("ts"), "blocks": len(snap.get("blocks") or []), "bg": snap.get("bg"), "h": snap.get("h")})
+    # also include current
+    cur=None
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f: cur=json.load(f)
+            out.append({"idx": len(hist), "ts": int(time.time()), "blocks": len(cur.get("blocks") or []), "bg": cur.get("bg"), "h": cur.get("h"), "current": True})
+        except: pass
+    return {"history": out, "count": len(hist)}
+
+@app.post("/api/canvas/{job_id}/undo")
+def canvas_undo(job_id: str, request: Request):
+    if _limited(request, "export"):
+        return _too_many("export")
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    hist=_canvas_load_history(job_id)
+    if not hist:
+        return JSONResponse({"error": "Нечего отменять"}, status_code=400)
+    # pop last and restore
+    snap=hist.pop()
+    p=os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"blocks": snap.get("blocks") or [], "bg": snap.get("bg"), "h": snap.get("h")}, f, ensure_ascii=False)
+        # save back history
+        with open(_canvas_hist_path(job_id),"w",encoding="utf-8") as f:
+            json.dump(hist, f, ensure_ascii=False)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return {"ok": True, "restored": snap}
 
 
 @app.get("/api/canvas/{job_id}/zip")

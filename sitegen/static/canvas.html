@@ -117,6 +117,11 @@ body{overflow:hidden}
       <h4>Слои <span id="layer-count" class="hint2"></span></h4>
       <div id="layers"></div>
     </div>
+    <div class="layers" style="max-height:160px">
+      <h4>История сервера <button class="btn-sm" style="padding:4px 8px;font-size:11px;float:right" onclick="loadHistory()">↻</button> <span id="hist-count" class="hint2"></span></h4>
+      <div id="history-list" class="hint2" style="padding:4px 0; display:grid;gap:4px"></div>
+      <button class="btn-sm" style="width:100%;margin-top:6px" onclick="serverUndo()">↩️ Отменить на сервере</button>
+    </div>
     <div style="margin-top:12px;display:grid;gap:8px">
       <div class="row2"><button class="btn-sm" onclick="duplicate()">Дублировать</button><button class="btn-sm" onclick="remove()">Удалить (Del)</button></div>
       <div class="row2"><button class="btn-sm" onclick="bringFront()">На передний</button><button class="btn-sm" onclick="sendBack()">На задний</button></div>
@@ -167,6 +172,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       applyCanvasChrome();
       history=[JSON.stringify(blocks)]; histPos=0;
       render(); toast('Загружено '+CANVAS_ID+' ('+blocks.length+' блоков)');
+      setTimeout(loadHistory, 500);
     } else {
       // still apply chrome from fetched meta even if blocks empty
       if(j && j.bg) { canvasBg=j.bg; }
@@ -203,7 +209,7 @@ function save(withHist=true){
     if(!_savePending) return;
     _savePending=false;
     fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({blocks, bg: canvasBg, h: canvasH})})
-      .then(r=>{ if(!r.ok) throw new Error('save '+r.status); if(badge) badge.textContent='✓ сохранено'; setTimeout(()=>{ if(badge) badge.textContent=''; },1500); })
+      .then(r=>{ if(!r.ok) throw new Error('save '+r.status); if(badge) badge.textContent='✓ сохранено'; setTimeout(()=>{ if(badge) badge.textContent=''; },1500); try{ loadHistory(); }catch(e){} })
       .catch(()=>{ if(badge) badge.textContent='⚠ ошибка'; });
   }, 400);
   if(withHist) toast('Сохранено '+CANVAS_ID);
@@ -528,6 +534,41 @@ async function deleteCanvas(){
     location.href='/canvas';
   }catch(e){ toast('Ошибка удаления: '+e.message); }
 }
+async function loadHistory(){
+  const box=document.getElementById('history-list');
+  const cnt=document.getElementById('hist-count');
+  if(!box) return;
+  box.innerHTML='загрузка…';
+  try{
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/history');
+    const j=await r.json();
+    const h=j.history||[];
+    if(cnt) cnt.textContent='· '+h.length;
+    if(!h.length){ box.innerHTML='<span class="hint2">пока пусто</span>'; return; }
+    box.innerHTML=h.slice(-10).reverse().map((s,i)=>`<div style="display:flex;gap:6px;align-items:center;padding:4px 6px;background:#FAF9F7;border:1px solid #E7E5F0;border-radius:6px;font-size:11px"><span>${new Date(s.ts*1000).toLocaleTimeString()}</span><span>${s.blocks} бл</span>${s.current?'<b style="color:#5B5FEF">● тек</b>':''}</div>`).join('');
+  }catch(e){ box.innerHTML='ошибка: '+e.message; }
+}
+async function serverUndo(){
+  if(!confirm('Отменить последнее сохранение на сервере и восстановить предыдущую версию?')) return;
+  try{
+    const r=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID)+'/undo', {method:'POST'});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
+    // reload from server
+    const r2=await fetch('/api/canvas/'+encodeURIComponent(CANVAS_ID));
+    const d=await r2.json();
+    if(d && Array.isArray(d.blocks)){
+      blocks=d.blocks;
+      if(d.bg) canvasBg=d.bg;
+      if(d.h) canvasH=parseInt(d.h,10)||canvasH;
+      try{ localStorage.setItem(LS, JSON.stringify(blocks)); }catch(e){}
+      applyCanvasChrome(); render(); pushHist(); save(false);
+      toast('Отменено на сервере');
+      loadHistory();
+    }
+  }catch(e){ toast('Ошибка undo: '+e.message); }
+}
+
 function toast(m){ const t=document.createElement('div'); t.textContent=m; t.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#2B2B36;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;z-index:99'; document.body.appendChild(t); setTimeout(()=>t.remove(),1800); }
 document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }

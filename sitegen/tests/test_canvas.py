@@ -104,3 +104,34 @@ def test_canvas_validation_limits(client, tmp_path, monkeypatch):
     # bad h
     r=client.post(f"/api/canvas/{jid}", json={"blocks": [], "h": 9999})
     assert r.status_code==422  # pydantic validation
+
+def test_canvas_history_undo(client, tmp_path, monkeypatch):
+    import app as appmod, generator, os, json
+    monkeypatch.setattr(appmod, "CANVAS_DIR", str(tmp_path / "canvas_hist"))
+    os.makedirs(tmp_path / "canvas_hist", exist_ok=True)
+    monkeypatch.setattr(generator, "SITES_DIR", str(tmp_path / "sites_hist"))
+    os.makedirs(tmp_path / "sites_hist", exist_ok=True)
+    appmod._RATE.clear()
+    r=client.post("/api/canvases")
+    jid=r.json()["id"]
+    good1=[{"id":"h1","type":"heading","x":0,"y":0,"w":100,"h":50,"z":1,"props":{"text":"v1","size":20,"color":"#000"}}]
+    good2=[{"id":"h1","type":"heading","x":0,"y":0,"w":100,"h":50,"z":1,"props":{"text":"v2","size":20,"color":"#000"}}]
+    r=client.post(f"/api/canvas/{jid}", json={"blocks": good1})
+    assert r.status_code==200
+    r=client.post(f"/api/canvas/{jid}", json={"blocks": good2})
+    assert r.status_code==200
+    r=client.get(f"/api/canvas/{jid}/history")
+    assert r.status_code==200
+    hist=r.json()["history"]
+    assert len(hist)>=2  # at least one history + current
+    assert r.json()["count"]>=1
+    # undo should restore v1
+    r=client.post(f"/api/canvas/{jid}/undo")
+    assert r.status_code==200
+    r=client.get(f"/api/canvas/{jid}")
+    assert r.json()["blocks"][0]["props"]["text"]=="v1"
+    # second undo restores default (3 blocks), third should fail
+    r=client.post(f"/api/canvas/{jid}/undo")
+    assert r.status_code==200
+    r=client.post(f"/api/canvas/{jid}/undo")
+    assert r.status_code==400
