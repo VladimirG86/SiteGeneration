@@ -21,3 +21,5 @@ eval_reports/
 .venv/
 venv/
 .DS_Store
+sitegen/canvas/
+canvas/

@@ -197,7 +197,7 @@ def config():
         "auth": auth_enabled(),
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
-        "kinds": ["landing", "vcard"],
+        "kinds": ["landing", "vcard", "canvas"],
         "s3": s3_on,
         "s3_bucket": s3_bucket,
         "postgres": pg_on,
@@ -1039,6 +1039,49 @@ def client_panel():
     if os.path.exists(p):
         return FileResponse(p)
     return FileResponse(os.path.join(BASE_DIR, "static", "admin.html"))
+
+@app.get("/canvas", response_class=FileResponse)
+def canvas_editor():
+    # Level 3 — свободный визуальный редактор (free canvas, как Tilda/Wix)
+    p = os.path.join(BASE_DIR, "static", "canvas.html")
+    if os.path.exists(p):
+        return FileResponse(p)
+    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+
+class CanvasIn(BaseModel):
+    blocks: list = Field(default_factory=list)
+
+CANVAS_DIR = os.path.join(os.path.dirname(generator.SITES_DIR) if hasattr(generator, "SITES_DIR") else BASE_DIR, "canvas")
+try:
+    os.makedirs(CANVAS_DIR, exist_ok=True)
+except Exception:
+    CANVAS_DIR = generator.SITES_DIR
+
+@app.get("/api/canvas/{job_id}")
+def get_canvas(job_id: str):
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    if not os.path.exists(p):
+        return {"blocks": []}
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"blocks": []}
+
+@app.post("/api/canvas/{job_id}")
+def save_canvas(job_id: str, body: CanvasIn):
+    if not _valid_job_id(job_id):
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    p = os.path.join(CANVAS_DIR, f"canvas-{job_id}.json")
+    data = {"blocks": body.blocks}
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return {"ok": True}
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
