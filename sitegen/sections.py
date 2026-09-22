@@ -73,7 +73,7 @@ def header(site) -> str:
   <a class="logo" href="#"><span class="logo-mark">{initial}</span>{brand}</a>
   <nav class="nav" id="nav">{links}</nav>
   <a class="btn" href="#contacts">{esc(cta)}</a>
-  <button class="burger" onclick="document.getElementById('nav').classList.toggle('open')">☰</button>
+  <button class="burger" aria-label="Меню" onclick="document.getElementById('nav').classList.toggle('open')">☰</button>
 </div></header>"""
 
 
@@ -103,7 +103,7 @@ def hero(site, s) -> str:
         from images import data_uri
         uri = data_uri(job, "hero.webp")
         if uri:
-            art_svg = f'<img class="hero-photo" src="{uri}" alt="">'
+            art_svg = f'<img class="hero-photo" src="{uri}" alt="{esc(site.get("brand") or "")} — {esc(s.get("title") or "")}" loading="lazy">'
     art = f"""
 <div class="hero-art">
   {art_svg}
@@ -303,7 +303,7 @@ def products(site, s, cart_enabled=False):
             from images import data_uri
             uri = data_uri(job, f"prod_{idx}.webp")
             if uri:
-                visual = f'<img class="prod-photo" src="{uri}" alt="{name}">' 
+                visual = f'<img class="prod-photo" src="{uri}" alt="{name}" loading="lazy">' 
         if cart_enabled and digits:
             btn = (f'<button class="btn buy-btn" data-name="{name}" data-price="{price}" '
                    f'data-num="{int(digits)}">В корзину</button>')
@@ -702,13 +702,24 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
 })();
 </script>"""
         cart_js = CART_JS.replace("API_LEAD_URL", f"/api/lead/{esc(site_id)}") if cart_on else ""
+        og_title_v = esc(title_tag)
+        og_desc_v = esc(subtitle)[:160]
+        canonical_v = f"/api/site/{esc(site_id)}"
+        json_ld_v = """<script type="application/ld+json">{"@context":"https://schema.org","@type":"Person","name":"%s","telephone":"%s","email":"%s","url":"%s"}</script>""" % (esc(site.get("brand") or ""), esc(site.get("phone") or ""), esc(site.get("email") or ""), canonical_v)
         page = f"""<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title_tag}</title>
 <meta name="description" content="{subtitle}">
+<meta property="og:title" content="{og_title_v}">
+<meta property="og:description" content="{og_desc_v}">
+<meta property="og:type" content="profile">
+<meta property="og:url" content="{canonical_v}">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{canonical_v}">
 {FONTS_LINK}
 <style>{css}</style>
+{json_ld_v}
 </head><body>
 {body_html}
 {lead_js}
@@ -767,13 +778,25 @@ def render_page(site: dict, site_id: str = "demo", theme_mode: str = None,
 })();
 </script>"""
     cart_js = CART_JS.replace("API_LEAD_URL", f"/api/lead/{esc(site_id)}") if cart_on else ""
+    # SEO head: OG / Twitter / canonical stub + JSON-LD
+    og_title = esc(title_tag)
+    og_desc = esc(subtitle)[:160]
+    canonical = f"/api/site/{esc(site_id)}"
+    json_ld = """<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"%s","telephone":"%s","email":"%s","address":"%s","url":"%s"}</script>""" % (esc(site.get("brand") or ""), esc(site.get("phone") or ""), esc(site.get("email") or ""), esc(site.get("address") or ""), canonical)
     page = f"""<!doctype html>
 <html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title_tag}</title>
 <meta name="description" content="{subtitle}">
+<meta property="og:title" content="{og_title}">
+<meta property="og:description" content="{og_desc}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{canonical}">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="{canonical}">
 {FONTS_LINK}
 <style>{css}</style>
+{json_ld}
 </head><body>
 {''.join(body)}
 {lead_js}

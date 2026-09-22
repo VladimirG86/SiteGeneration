@@ -49,7 +49,11 @@ def build_css(mode: str, accent: str) -> str:
     return f"""
     :root{{{vars_}}}
     *{{margin:0;padding:0;box-sizing:border-box}}
-    html{{scroll-behavior:smooth}}
+    html{{-webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale}}
+    html{{scroll-behavior:smooth; scrollbar-gutter:stable}}
+    ::selection{{background:var(--accent); color:#fff}}
+    :focus-visible{{outline:2px solid var(--accent); outline-offset:2px}}
+    @media (prefers-reduced-motion: reduce){{ *,*::before,*::after{{animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important}}}}
     body{{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
       background:var(--bg);color:var(--text);line-height:1.6;font-size:16px}}
     img,svg{{display:block;max-width:100%}}
@@ -66,6 +70,7 @@ def build_css(mode: str, accent: str) -> str:
       display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px color-mix(in srgb,var(--accent) 28%,transparent)}}
     .logo-mark svg{{width:20px;height:20px}}
     .nav{{display:flex;gap:22px;margin-left:auto;font-size:14px;font-weight:500;color:var(--muted);font-family:'Inter',sans-serif}}
+    .nav a{{transition:color .14s ease}}
     .nav a:hover{{color:var(--accent)}}
     .hdr .btn{{margin-left:8px}}
     .burger{{display:none;margin-left:auto;background:none;border:1px solid var(--border);
@@ -97,7 +102,7 @@ def build_css(mode: str, accent: str) -> str:
     .lead{{color:var(--muted);font-family:'Inter',sans-serif;font-size:16px;max-width:640px;line-height:1.6}}
 
     /* ---------- hero ---------- */
-    .hero{{position:relative;padding:88px 0 84px;overflow:hidden;background:var(--hero-glow)}}
+    .hero{{position:relative;padding:88px 0 84px;overflow:hidden;background:var(--hero-glow); isolation:isolate}}
     .hero-grid{{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:center}}
     .hero .lead{{margin:18px 0 28px;font-size:17px}}
     .hero-cta{{display:flex;gap:12px;flex-wrap:wrap}}
