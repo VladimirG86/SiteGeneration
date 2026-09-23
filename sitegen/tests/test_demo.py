@@ -97,3 +97,7 @@ def test_billing_limits():
     assert billing.checkout_url("pro") == "/#prices?tariff=pro"
     assert billing.checkout_url("pro", yearly=True) == "/#prices?tariff=pro&yearly=1"
 
+def test_swedish_phone_preserved():
+    site = demo_content.build_site({"Название":"Test","О бизнесе":"Кофейня в Стокгольме","Услуги/товары":"Кофе","Преимущества":"","Дополнительно":"+46 8 123 45 67"}, "light","purple")
+    assert "+46" in site["phone"]
+
