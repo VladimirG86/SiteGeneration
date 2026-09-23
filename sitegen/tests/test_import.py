@@ -23,6 +23,8 @@ def test_validate_url_normalizes_and_blocks():
         importer.validate_url("https://test.nelvi.local")
     with pytest.raises(ValueError):
         importer.validate_url("http://my.internal")
+    with pytest.raises(ValueError):
+        importer.validate_url("https://demo.nelvi.app:8000/page")
 
 def test_extract_signals_basic():
     html = """<html><head><title>My Shop</title><meta name="description" content="desc here"></head>
