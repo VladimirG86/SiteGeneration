@@ -23,7 +23,9 @@ CITY_NOM = {"Москве": "Москва", "Москвы": "Москва", "М�
             "Ростове-на-Дону": "Ростов-на-Дону", "Ростове": "Ростов-на-Дону",
             "Уфе": "Уфа", "Уфа": "Уфа",
             "Твери": "Тверь", "Владивостоке": "Владивосток", "Перми": "Пермь", "Тюмени": "Тюмень", "Омске": "Омск",
-            "Воронеже": "Воронеж", "Воронеж": "Воронеж", "Калининграде": "Калининград", "Ярославле": "Ярославль"}
+            "Воронеже": "Воронеж", "Воронеж": "Воронеж", "Калининграде": "Калининград", "Ярославле": "Ярославль",
+            "Стокгольме": "Стокгольм", "Стокгольма": "Стокгольм", "Стокгольм": "Стокгольм",
+            "Stockholm": "Stockholm", "Stockholms": "Stockholm"}
 
 PRICE_RE = re.compile(r"\s*[-—–=]\s*|\s+по\s+(\d|\d[\d\s]{1,7})\s*(₽|руб)", re.I)
 TAIL_PRICE_RE = re.compile(
@@ -35,26 +37,42 @@ def extract_city(text: str):
     t = text or ""
     # сначала проверяем известные формы (включая родительный «Москвы»)
     for prep, nom in CITY_NOM.items():
-        # ищем как отдельное слово
-        if re.search(r"\b" + re.escape(prep) + r"\b", t):
+        # ищем как отдельное слово (case-insensitive для международных городов)
+        if re.search(r"\b" + re.escape(prep) + r"\b", t, flags=re.I):
             # для именительного отдаем предложный «в Москве», для родительного тоже
             # ищем предложный вариант для этого города
             pref = None
             for k,v in CITY_NOM.items():
-                if v==nom and k.endswith("е") or k.endswith("и"):
+                if v==nom and (k.endswith("е") or k.endswith("и")):
                     # эвристика: предложный оканчивается на е/и
                     if "Москве" in k or "Петербурге" in k or k in ("Казани","Самаре","Уфе"):
                         pref=k; break
             if not pref:
                 pref = prep if prep != nom else next((k for k,v in CITY_NOM.items() if v==nom and k!=nom), prep)
+            # Stockholm: English handling
+            if prep.lower() == "stockholm" or nom.lower() == "stockholm":
+                # preserve language: if original text has English "in", return English
+                if "in " in (t.lower()) or "stockholm" in (t.lower()):
+                    # detect Russian vs English by checking if text contains Russian characters
+                    if any("Ѐ" <= c <= "ӿ" for c in t):
+                        return "Стокгольм", "в Стокгольме"
+                    return "Stockholm", "in Stockholm"
             # если prep уже предложный, используем его
-            if prep in ("Москве","Санкт-Петербурге","Казани","Екатеринбурге","Новосибирске","Краснодаре","Самаре","Уфе"):
+            if prep in ("Москве","Санкт-Петербурге","Казани","Екатеринбурге","Новосибирске","Краснодаре","Самаре","Уфе","Стокгольме"):
                 return nom, f"в {prep}"
             # родительный «Москвы» -> «в Москве»
-            if prep in ("Москвы","Санкт-Петербурга"):
+            if prep in ("Москвы","Санкт-Петербурга","Стокгольма"):
+                if nom == "Стокгольм":
+                    return nom, "в Стокгольме"
+                if nom == "Stockholm":
+                    return nom, "in Stockholm"
                 return nom, f"в {'Москве' if nom=='Москва' else 'Санкт-Петербурге'}"
+            if nom == "Stockholm":
+                return nom, f"in {prep if prep != nom else 'Stockholm'}"
+            if nom == "Стокгольм":
+                return nom, f"в Стокгольме"
             return nom, f"в {pref}"
-        if re.search(r"\b" + re.escape(nom) + r"\b", t):
+        if re.search(r"\b" + re.escape(nom) + r"\b", t, flags=re.I):
             # нашли именительный — возвращаем предложный
             for p2, n2 in CITY_NOM.items():
                 if n2 == nom and p2 != nom:
@@ -66,6 +84,14 @@ def extract_city(text: str):
                     return nom, f"в {p2}"
             return nom, f"в {nom}"
     m = re.search(r"\b(?:в|г\.\s?|городе?\s+)\s*([А-ЯЁ][а-яё\-]{2,})", t)
+    if not m:
+        # English fallback: "in Stockholm" (для международных городов, как у пользователя в Стокгольме)
+        m2 = re.search(r"\b(?:in|at|from)\s+([A-Z][a-z\-]{2,})", t)
+        if m2:
+            cand = m2.group(1)
+            if cand.lower() == "stockholm":
+                return "Stockholm", "in Stockholm"
+            return cand, f"in {cand}"
     if m:
         cand = m.group(1)
         # если похоже на Москву в родительном, мапим
@@ -84,6 +110,17 @@ def _extract_phone(text: str) -> str:
     m = re.search(r"\+?7\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", text)
     if not m:
         m = re.search(r"8\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", text)
+    # Swedish +46 (Stockholm) — preserve as international
+    if not m:
+        m = re.search(r"\+46\s*\(?\d{1,3}\)?[\s\-]*\d{3,}[\s\-]*\d{2,}[\s\-]*\d{2,}", text)
+        if m:
+            return re.sub(r"\s+", " ", m.group(0).strip())[:30]
+    if not m:
+        # generic international +XX (e.g., +33) — keep as is
+        m = re.search(r"\+\d{1,3}\s*\(?\d{2,4}\)?[\s\-]*\d{3,}[\s\-]*\d{2,}[\s\-]*\d{2,}", text)
+        if m:
+            # normalize spaces for international
+            return re.sub(r"\s+", " ", m.group(0).strip())[:30]
     if not m:
         return ""
     digits = re.sub(r"\D", "", m.group(0))
@@ -172,12 +209,18 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
          "Преимущества": "advantages", "Дополнительно": "extras"}[key]) or ""
     name = a("Название").strip() or "Наша компания"
     about_text = a("О бизнесе").strip()
+    tz_text = (answers.get("ТЗ") or answers.get("tz_text") or "").strip()
+    refs_text = (answers.get("Референсы") or answers.get("references") or "").strip()
+    # для города/телефона используем ТЗ тоже (вдруг там адрес)
     prod_lines = _split_products(a("Услуги/товары"))
     advantages = _split_advantages(a("Преимущества"))
     extras = [x.strip(" .-–—") for x in re.split(r"[\n;]+|,\s*", a("Дополнительно")) if 3 < len(x.strip()) <= 70][:5]
 
-    city_nom, city_in = extract_city(about_text + " " + name)
-    niche = niches.detect_niche(about_text + " " + " ".join(p["name"] for p in prod_lines))
+    city_nom, city_in = extract_city(" ".join([about_text, name, tz_text[:500], refs_text[:500]]))
+    # fallback если пусто — пробуем весь текст ответов
+    if not city_nom:
+        city_nom, city_in = extract_city(" ".join(str(v) for v in answers.values()))
+    niche = niches.detect_niche(" ".join([about_text, tz_text[:800], refs_text[:500], " ".join(p["name"] for p in prod_lines)]))
     bank = niches.chips_for(niche)
 
     # ---------- hero ----------
@@ -193,8 +236,13 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
                 break
         if not benefit:
             benefit = advantages[0].strip()[:36]
-    # Build hero title: benefit + city, not generic
-    if benefit:
+    # Build hero title: for IT/nelvi/generic use clean headline to avoid truncation mess
+    if ("лендинг" in first.lower() or "публикация" in benefit.lower() or len(first_short) > 28 or niche in ("it", "generic") and len(first) > 15):
+        # professional headline for constructor service
+        hero_title = "Сайт за вечер. Без кода."
+        if city_in and city_in not in hero_title:
+            hero_title += f" {city_in}"
+    elif benefit:
         hero_title = f"{first_short[0].upper() + first_short[1:]} — {benefit.lower()}"
         if city_in and city_in not in hero_title:
             hero_title += f" {city_in}"
@@ -209,20 +257,32 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
         hero_sub = f"{about_short}. Работаем по договору, стоимость фиксируем до начала работ."
     else:
         hero_sub = f"{name}: работаем по договору, стоимость фиксируем до начала работ."
-    # More concrete stats from advantages
+    # More concrete stats from advantages — fix truncation (was adv[:16] → nonsense like "Без кода и дизай")
     hero_stats = []
-    # Try to extract numbers from advantages for stats
     for adv in (advantages or [])[:3]:
         m=re.search(r"(\d+\s*(?:лет|год|мес|дн|час|мин|%|₽|клиент|заказ|гарант))", adv, re.I)
         if m:
-            hero_stats.append({"value": m.group(1).strip()[:16], "label": adv.strip()[:32]})
+            hero_stats.append({"value": m.group(1).strip()[:16], "label": adv.strip()[:48]})
         else:
-            # fallback generic but more specific
-            hero_stats.append({"value": adv.strip()[:16], "label": "преимущество"})
-    # Fill up to 3 with defaults if needed
-    defaults = [{"value": "15 мин", "label": "отвечаем на заявку"},
-                {"value": "1 год", "label": "гарантия по договору"},
-                {"value": "0 ₽", "label": "диагностика"}]
+            # use checkmark as value, full advantage as label (no truncation)
+            clean = adv.strip()
+            hero_stats.append({"value": "✓", "label": (clean[:48].rsplit(" ",1)[0] if len(clean)>48 else clean)})
+    # Fill up to 3 with defaults if needed — niche-aware (v27)
+    _HERO_STATS_DEFAULTS = {
+        "food": [{"value": "30 мин", "label": "доставка в срок"}, {"value": "4.9 ★", "label": "рейтинг гостей"}, {"value": "500+", "label": "заказов в месяц"}],
+        "beauty": [{"value": "30 мин", "label": "без ожидания"}, {"value": "100%", "label": "стерильные инструменты"}, {"value": "1 год", "label": "гарантия на работу"}],
+        "dental": [{"value": "Осмотр 0 ₽", "label": "и снимок в подарок"}, {"value": "Без боли", "label": "анестезия включена"}, {"value": "1 год", "label": "гарантия по договору"}],
+        "auto": [{"value": "15 мин", "label": "отвечаем на заявку"}, {"value": "12 мес", "label": "гарантия на работы"}, {"value": "0 ₽", "label": "диагностика при ремонте"}],
+        "fitness": [{"value": "Пробная 0 ₽", "label": "первая тренировка"}, {"value": "30 дней", "label": "заморозка абонемента"}, {"value": "24/7", "label": "доступ безлимит"}],
+        "build": [{"value": "Замер 0 ₽", "label": "выезд в день обращения"}, {"value": "3 года", "label": "гарантия на работы"}, {"value": "100%", "label": "сдача в срок"}],
+        "edu": [{"value": "8 чел", "label": "в группе до 8"}, {"value": "Пробное 0 ₽", "label": "знакомство с форматом"}, {"value": "4.9 ★", "label": "оценка родителей"}],
+        "med": [{"value": "В день", "label": "результаты анализов"}, {"value": "Без очередей", "label": "приём по записи"}, {"value": "24/7", "label": "онлайн-кабинет"}],
+        "law": [{"value": "15 мин", "label": "первичный разбор"}, {"value": "Фикс", "label": "цена в договоре"}, {"value": "NDA", "label": "конфиденциально"}],
+        "realestate": [{"value": "5 дней", "label": "подбор вариантов"}, {"value": "100%", "label": "юр. чистота"}, {"value": "0%", "label": "скрытых комиссий"}],
+        "it": [{"value": "5 дней", "label": "старт после брифа"}, {"value": "Фикс", "label": "смета по спринтам"}, {"value": "24/7", "label": "поддержка"}],
+        "generic": [{"value": "15 мин", "label": "отвечаем на заявку"}, {"value": "1 год", "label": "гарантия по договору"}, {"value": "0 ₽", "label": "диагностика"}],
+    }
+    defaults = _HERO_STATS_DEFAULTS.get(niche, _HERO_STATS_DEFAULTS["generic"])
     while len(hero_stats) < 3:
         hero_stats.append(defaults[len(hero_stats)])
     hero_stats=hero_stats[:3]
@@ -285,7 +345,21 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
         p1,
         _ABOUT_P2.get(niche, _ABOUT_P2["generic"]),
     ]
+    # если ТЗ длинное — добавляем абзац с ключевым требованием (обрезаем до 200 символов)
+    if tz_text and len(tz_text) > 20:
+        # берём первые 180 символов из ТЗ как важное уточнение
+        snippet = tz_text.strip().split("\n")[0][:180].strip()
+        if snippet:
+            about_paras.append(f"Важно из ТЗ: {snippet}" + ("…" if len(tz_text) > 180 else ""))
     about_bullets = extras or bank["extras"][:5]
+    # референсы — добавляем в bullets если есть (до 2)
+    if refs_text:
+        # вытащим до 2 url
+        import re as _re2
+        urls = _re2.findall(r"https?://[^\s,;]+", refs_text)
+        for u in urls[:2]:
+            if len(about_bullets) < 5:
+                about_bullets.append(f"Референс: {u[:60]}")
 
     # ---------- process ---------- (niche-aware)
     _PROCESS = {
@@ -410,21 +484,82 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
     }
     note = _PRICE_NOTE.get(niche, _PRICE_NOTE["generic"])
 
-    # ---------- reviews ----------
+    # ---------- reviews ---------- (v27 niche-aware)
     first_service = services_items[0]["name"] if services_items else "Заказ"
-    # Try to make reviews more niche-specific
     city_suffix = f" {city_in}" if city_in else ""
-    reviews_items = [
-        {"name": "Мария Р.", "meta": f"{first_service}{city_suffix}, июль 2026",
-         "text": f"Обратились в «{name}» по рекомендации{city_suffix}. Смету дали до начала работ, "
-                 "сделали в срок, цена не изменилась ни на рубль."},
-        {"name": "Олег Л.", "meta": f"Повторный заказ{city_suffix}, март 2026",
-         "text": f"Понравилось, что держали в курсе каждый этап{(' и присылали фото' if niche in ('build','auto') else '')}. "
-                 "Вопросы решали сразу, без «завтра сделаем»."},
-        {"name": "Елена К.", "meta": f"Срочный заказ{city_suffix}, август 2026",
-         "text": "Сначала сомневалась, но договор и фиксированная смета всё прояснили. "
-                 "Результатом довольна, буду обращаться ещё."},
-    ]
+    _REVIEWS_TEMPLATES = {
+        "food": [
+            ("Мария Р.", "Завтрак{city}, июль 2026", "Брала капучино и круассан — обжарка свежая, бариста помнит как люблю. Вернусь за десертом."),
+            ("Игорь С.", "Доставка{city}, март 2026", "Заказал к 9 утра — привезли за 25 минут, всё горячее. Бонусы начислили сразу."),
+            ("Анна К.", "Постоянный гость{city}, август 2026", "Кофе как в Стокгольме, только уютнее. Программа лояльности реально работает."),
+        ],
+        "beauty": [
+            ("Мария Р.", "Стрижка{city}, июль 2026", "Мастер подобрал форму под лицо, показал как укладывать. Стерильно, музыка приятная."),
+            ("Ольга Л.", "Маникюр{city}, март 2026", "Делала покрытие — держится 3 недели без сколов. Инструменты вскрывают при мне."),
+            ("Елена К.", "Окрашивание{city}, август 2026", "Цвет ровный, волосы не пересушили. Напомнили о визите в SMS."),
+        ],
+        "dental": [
+            ("Мария Р.", "Лечение{city}, июль 2026", "Лечили без боли, анестезия сработала мгновенно. План и цену дали до начала."),
+            ("Олег Л.", "Имплантация{city}, март 2026", "Объяснили каждый шаг, снимок сделали на месте. Гарантию вписали в договор."),
+            ("Елена К.", "Чистка{city}, август 2026", "Быстро, аккуратно, дали рекомендации по уходу. Записалась на профосмотр."),
+        ],
+        "auto": [
+            ("Мария Р.", "Диагностика{city}, июль 2026", "Приехала без записи — проверили за час, смету согласовали до ремонта."),
+            ("Олег Л.", "Ремонт двигателя{city}, март 2026", "Присылали фото этапов, запчасти согласовали по цене. Гарантия 12 мес."),
+            ("Елена К.", "ТО{city}, август 2026", "Сделали в срок, цена не выросла. Буду обслуживаться здесь."),
+        ],
+        "fitness": [
+            ("Мария Р.", "Пробная{city}, июль 2026", "Тренер составил план под цель, показал технику. Зал чистый, без духоты."),
+            ("Олег Л.", "Абонемент на год{city}, март 2026", "Заморозка спасла в отпуске, прогресс меряют каждый месяц."),
+            ("Елена К.", "Группа{city}, август 2026", "Атмосфера дружеская, тренер на связи в чате."),
+        ],
+        "build": [
+            ("Мария Р.", "Ремонт квартиры{city}, июль 2026", "Смету дали до начала, фотоотчёт каждый день. Сдали без доплат."),
+            ("Олег Л.", "Замер{city}, март 2026", "Приехали в день обращения, замерили бесплатно, договор прозрачный."),
+            ("Елена К.", "Сдача{city}, август 2026", "Убрались за собой, гарантия 3 года — спокойно."),
+        ],
+        "edu": [
+            ("Мария Р.", "Английский{city}, июль 2026", "Группа 6 человек, преподаватель натив. Пробное — бесплатно, отчёты родителям."),
+            ("Олег Л.", "Подготовка к школе{city}, март 2026", "Ребёнок идёт с радостью, прогресс вижу дома."),
+            ("Елена К.", "Математика{city}, август 2026", "Объясняют понятно, домашка — в приложении."),
+        ],
+        "med": [
+            ("Мария Р.", "Анализы{city}, июль 2026", "Без очереди, результаты в тот же день в кабинете. Врач позвонил сам."),
+            ("Олег Л.", "Приём терапевта{city}, март 2026", "Внимательно слушает, не назначает лишнего."),
+            ("Елена К.", "МРТ{city}, август 2026", "Записали на вечер, заключение — за час."),
+        ],
+        "law": [
+            ("Мария Р.", "Консультация{city}, июль 2026", "Разобрали риски за 15 минут, цену зафиксировали в договоре."),
+            ("Олег Л.", "Дело в суде{city}, март 2026", "Вели онлайн, в мессенджере держали в курсе. Результат — в срок."),
+            ("Елена К.", "Договор{city}, август 2026", "NDA и конфиденциальность — без вопросов."),
+        ],
+        "realestate": [
+            ("Мария Р.", "Подбор квартиры{city}, июль 2026", "За 4 дня нашли 3 варианта, юр. чистоту проверили."),
+            ("Олег Л.", "Ипотека{city}, март 2026", "Помогли с банком, сопровождали до ключей."),
+            ("Елена К.", "Продажа{city}, август 2026", "Оценили честно, продали без торга."),
+        ],
+        "it": [
+            ("Мария Р.", "Лендинг{city}, июль 2026", "Старт за 5 дней, смета фикс, кабинет с задачами."),
+            ("Олег Л.", "CRM{city}, март 2026", "Сделали интеграцию, поддержка 24/7 отвечает за минуты."),
+            ("Елена К.", "Автоматизация{city}, август 2026", "Сэкономили 10 часов в неделю, отчёт — в цифрах."),
+        ],
+        "generic": [
+            ("Мария Р.", "Заказ{city}, июль 2026", "Обратились по рекомендации{city}. Смету дали до начала работ, сделали в срок, цена не изменилась."),
+            ("Олег Л.", "Повторный заказ{city}, март 2026", "Держали в курсе каждый этап{photo}. Вопросы решали сразу, без «завтра»."),
+            ("Елена К.", "Срочный заказ{city}, август 2026", "Договор и фиксированная смета всё прояснили. Результатом довольна, буду обращаться ещё."),
+        ],
+    }
+    tmpl_reviews = _REVIEWS_TEMPLATES.get(niche, _REVIEWS_TEMPLATES["generic"])
+    reviews_items = []
+    for idx, (rname, rmeta_tmpl, rtext_tmpl) in enumerate(tmpl_reviews):
+        rmeta = rmeta_tmpl.format(city=city_suffix)
+        rtext = rtext_tmpl.format(city=city_suffix, city_in=city_in, name=name, photo=(" и присылали фото" if niche in ("build","auto") else ""))
+        # Replace placeholders for generic
+        if niche == "generic":
+            rtext = rtext.format(city=city_suffix, photo=(" и присылали фото" if niche in ("build","auto") else ""))
+        # Ensure city is interpolated
+        rtext = rtext.replace("{city}", city_suffix).replace("{name}", name)
+        reviews_items.append({"name": rname, "meta": rmeta, "text": rtext})
 
     # ---------- faq ---------- (niche-aware)
     _FAQ = {
@@ -504,16 +639,39 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
     faq_items = _FAQ.get(niche, generic_faq)
 
     # phone/email — берём из анкеты если есть, иначе дефолт
-    _all_text = " ".join([about_text, a("Услуги/товары"), a("Преимущества"), a("Дополнительно"), answers.get("email") or "", answers.get("Email") or "", answers.get("телефон") or answers.get("phone") or ""])
-    _phone = _extract_phone(_all_text) or "+7 (900) 123-45-67"
-    _email = _extract_email(_all_text) or answers.get("email") or answers.get("Email") or ""
+    _all_text = " ".join([about_text, a("Услуги/товары"), a("Преимущества"), a("Дополнительно"), tz_text, refs_text, answers.get("email") or "", answers.get("Email") or "", answers.get("телефон") or answers.get("phone") or ""])
+    _phone = _extract_phone(_all_text) or _extract_phone(tz_text) or "+7 (900) 123-45-67"
+    _email = _extract_email(_all_text) or _extract_email(tz_text) or answers.get("email") or answers.get("Email") or ""
     if _email and "@" not in _email:
         _email = ""
+    _HERO_CTA = {
+        "food": ("Сделать заказ", "Посмотреть меню"),
+        "beauty": ("Записаться", "Смотреть цены"),
+        "dental": ("Записаться на приём", "Услуги и цены"),
+        "auto": ("Записаться на диагностику", "Смотреть цены"),
+        "fitness": ("Попробовать бесплатно", "Абонементы"),
+        "build": ("Вызвать замерщика", "Смотреть цены"),
+        "edu": ("Записаться на пробное", "Программы"),
+        "med": ("Записаться на приём", "Услуги"),
+        "law": ("Получить консультацию", "Услуги"),
+        "realestate": ("Подобрать варианты", "Каталог"),
+        "it": ("Обсудить проект", "Кейсы"),
+        "generic": ("Оставить заявку", "Смотреть цены"),
+    }
+    cta1, cta2 = _HERO_CTA.get(niche, _HERO_CTA["generic"])
+    # сохраним референсы/ТЗ в site для отладки и SEO
+    _meta_extra = {}
+    if refs_text:
+        _meta_extra["references"] = refs_text[:4000]
+    if tz_text:
+        _meta_extra["tz_text"] = tz_text[:20000]
+        _meta_extra["tz_filename"] = (answers.get("ТЗ_файл") or "")[:255]
     return {
         "brand": name,
         "city": city_nom,
         "niche": niche,
         "kind": "landing",
+        **_meta_extra,
         "tagline": adv_src[0][:38].rstrip(" .") if adv_src else "Работаем по договору",
         "phone": _phone,
         "email": _email,
@@ -525,7 +683,7 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
                 {"label": "Контакты", "href": "#contacts"}],
         "sections": [
             {"type": "hero", "title": hero_title, "subtitle": hero_sub,
-             "cta_primary": "Оставить заявку", "cta_secondary": "Смотреть цены",
+             "cta_primary": cta1, "cta_secondary": cta2,
              "badges": [x if len(x) <= 30 else x[:28].rstrip(" ,.") + "…" for x in adv_src[:3]],
              "stats": hero_stats},
             {"type": "services", "kicker": "Услуги", "title": "Чем мы можем помочь",
@@ -561,17 +719,19 @@ def build_taplink_site(answers: dict, theme_mode: str, accent: str) -> dict:
 
 def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
     """QR-визитка / myqrcards + мультиссылка (объединено: QR-визитка покрывает taplink)."""
+    tz_v = (answers.get("ТЗ") or "").strip()
+    refs_v = (answers.get("Референсы") or "").strip()
     a = lambda key: answers.get(key) or answers.get(
         {"Название": "name", "О бизнесе": "about", "Услуги/товары": "products",
          "Преимущества": "advantages", "Дополнительно": "extras", "Должность": "position",
-         "Компания": "company", "Ссылки": "links"}[key]) or ""
+         "Компания": "company", "Ссылки": "links", "Референсы": "references", "ТЗ": "tz_text"}[key]) or ""
     name = a("Название").strip() or "Иван Петров"
     company = a("Компания").strip() or a("О бизнесе").strip()[:40] or "Компания"
     position = a("Должность").strip() or "Менеджер"
     about_text = a("О бизнесе").strip() or f"{name} — {position} в {company}"
     extras = a("Дополнительно").strip() or ""
     # phone/email из анкеты если есть
-    _all_v = " ".join([about_text, extras, a("Услуги/товары"), answers.get("email") or "", answers.get("Email") or "", extras])
+    _all_v = " ".join([about_text, extras, a("Услуги/товары"), tz_v, refs_v, answers.get("email") or "", answers.get("Email") or "", extras])
     _found_phone = _extract_phone(_all_v)
     phone = _found_phone or "+7 (900) 123-45-67"
     _found_email = _extract_email(_all_v) or answers.get("email") or answers.get("Email") or ""
@@ -641,10 +801,16 @@ def build_vcard_site(answers: dict, theme_mode: str, accent: str) -> dict:
         {"type": "tap_text", "kicker": "", "title": "", "text": extras[:200] if extras else "Буду рад знакомству — пишите в любой мессенджер."},
         {"type": "contacts", "kicker": "Заявка", "title": "Оставьте контакты", "text": "Перезвоню и отвечу на вопросы.", "fields": ["name", "phone", "comment"]},
     ])
+    _v_extra = {}
+    if refs_v:
+        _v_extra["references"] = refs_v[:4000]
+    if tz_v:
+        _v_extra["tz_text"] = tz_v[:20000]
     return {
         "brand": name,
         "city": "",
         "tagline": f"{position} · {company}",
+        **_v_extra,
         "phone": phone,
         "email": email,
         "address": extras[:80] if extras else "Москва",

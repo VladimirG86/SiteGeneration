@@ -59,6 +59,30 @@ def _norm_mode(v):
             if kw in s:
                 return mode
     return None
+def _norm_phone(v):
+    import re
+    if not v:
+        return ""
+    s=str(v).strip()
+    # Russian +7 / 8
+    m=re.search(r"\+?7\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", s)
+    if not m:
+        m=re.search(r"8\s*\(?\d{3}\)?\s*\d{3}[-\s]*\d{2}[-\s]*\d{2}", s)
+    if m:
+        digits=re.sub(r"\D","", m.group(0))
+        if len(digits)==11 and digits[0] in ("7","8"):
+            digits="7"+digits[1:]
+            return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:11]}"
+        if len(digits)==10:
+            return f"+7 ({digits[0:3]}) {digits[3:6]}-{digits[6:8]}-{digits[8:10]}"
+    # Swedish +46 and generic international — keep normalized spacing
+    m=re.search(r"\+46\s*\(?\d{1,3}\)?[\s\-]*\d{3,}[\s\-]*\d{2,}[\s\-]*\d{2,}", s)
+    if m:
+        return re.sub(r"\s+", " ", m.group(0).strip())[:30]
+    m=re.search(r"\+\d{1,3}\s*\(?\d{2,4}\)?[\s\-]*\d{3,}[\s\-]*\d{2,}[\s\-]*\d{2,}", s)
+    if m:
+        return re.sub(r"\s+", " ", m.group(0).strip())[:30]
+    return s[:30]
 
 # Блоки-одиночки: второй такой же создать нельзя, upsert/add заменяет.
 SINGLETON_TYPES = ("hero", "contacts", "profile", "qrcode", "vcard")
@@ -162,7 +186,7 @@ def sanitize_section(s: dict) -> dict | None:
             if s.get(k):
                 out[k] = _s(s[k], 40)
         out["badges"] = [_s(b, 30) for b in (s.get("badges") or [])[:4] if _s(b, 30)]
-        out["stats"] = [{"value": _s(x.get("value"), 20), "label": _s(x.get("label"), 40)}
+        out["stats"] = [{"value": _s(x.get("value"), 20), "label": _s(x.get("label"), 48)}
                         for x in (s.get("stats") or [])[:3] if isinstance(x, dict)]
     if t == "about":
         out["paragraphs"] = [_s(p, 400) for p in (s.get("paragraphs") or [])[:4] if _s(p, 400)]
@@ -344,8 +368,13 @@ def apply_ops(site: dict, ops: list) -> tuple[int, list]:
                 notes.append("неверный theme — пропустил")
 
         elif kind == "set_info":
-            info = {k: _s(op.get(k), 120) for k in
-                    ("brand", "tagline", "phone", "email", "address") if op.get(k)}
+            info = {}
+            for k in ("brand", "tagline", "phone", "email", "address"):
+                if op.get(k):
+                    v = _s(op.get(k), 120)
+                    if k=="phone":
+                        v = _norm_phone(v) or v
+                    info[k]=v
             if info:
                 site.update(info)
                 applied += 1
