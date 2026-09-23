@@ -65,3 +65,15 @@ def test_hero_fallback_without_advantages():
     assert hero["title"] and len(hero["title"])<=70
     assert len(hero.get("stats",[]))==3
 
+def test_nelvi_hero_and_niche_regression():
+    # регрессия: лендинг + автоматом не должен детектиться как auto, hero не должен обрезаться до 16 симв
+    site=demo_content.build_site({"Название":"Nelvi — конструктор сайтов за вечер","О бизнесе":"Сервис для создания лендингов, QR-визиток и свободных канвасов без кода. Собирай страницы блоками, публикуй в один клик, принимай заявки и не думай про хостинг, домен и SSL.","Услуги/товары":"Лендинг за 5 минут — от 0 ₽\nQR-визитка — Taplink\nСвободный канвас — как в Tilda","Преимущества":"Без кода и дизайнеров — как конструктор\nПубликация в 1 клик — поддомен и SSL автоматом\nИмпорт любого сайта по ссылке — клонируем и правим чатом","Дополнительно":""}, "light","purple")
+    assert site["niche"] == "it", site["niche"]
+    hero=[s for s in site["sections"] if s["type"]=="hero"][0]
+    assert hero["title"] == "Сайт за вечер. Без кода."
+    # stats: value должен быть ✓, а label — полный (до 48), без обрезки до 16
+    for st in hero["stats"]:
+        assert st["value"] == "✓"
+        assert len(st["label"]) > 16
+        assert "Без кода и дизай" not in st["value"]  # старый баг adv[:16]
+
