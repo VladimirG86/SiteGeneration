@@ -234,4 +234,4 @@ docker compose up --build      # http://localhost:8000  (/api/health → billing
 - **Start** 990 ₽ / 5 / 400
 - **Pro** 1990 ₽ (~2000, хит) / 20 / 800
 - **Business** 4990 ₽ / ∞ / 2000
-См. `docs/tariffs.md` и `sitegen/billing.py`. Пока домена нет — `POST /api/billing/checkout` → `200 {paused:true, url:"/#prices?..."}` и `GET /api/config` → `{billing_paused:true, tariffs_meta:{paused, limits}}`.
+См. `docs/tariffs.md` и `sitegen/billing.py`. Пока домена нет — `POST /api/billing/checkout` → `200 {paused:true, url:"/#prices?..."}` (yearly → `&yearly=1`), `GET /api/config` → `{billing_paused:true, tariffs_meta}` и `GET /api/health`.
