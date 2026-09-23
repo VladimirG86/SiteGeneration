@@ -61,8 +61,8 @@ def checkout_url(tariff: str, yearly: bool = False) -> str:
 
 
 def limits_for(tariff: str) -> dict:
-    """Лимиты для фронта — сайты/правки/домены."""
+    """Лимиты для фронта — сайты/правки/домены + мета для карточек."""
     d = TARIFFS.get(tariff, TARIFFS["free"])
-    return {"sites": d["sites"], "edits": d["edits"], "domains": d["domain"], "price_m": d["price_m"]}
+    return {"title": d["title"], "label": d.get("label",""), "featured": bool(d.get("featured")), "sites": d["sites"], "edits": d["edits"], "domains": d["domain"], "price_m": d["price_m"], "price_y": d["price_y"]}
 
 PAUSED_MSG = "Оплата на паузе до домена — кнопки ведут на #prices"
