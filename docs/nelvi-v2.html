@@ -510,8 +510,9 @@
       if(tariff==='free'){ return; }
       e.preventDefault();
       a.style.opacity='0.6'; a.textContent='…';
+      var yearly = document.getElementById('yearly-toggle') && document.getElementById('yearly-toggle').checked;
       try{
-        var r = await fetch('/api/billing/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tariff:tariff})});
+        var r = await fetch('/api/billing/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tariff:tariff, yearly: !!yearly})});
         var j = await r.json().catch(function(){return {}});
         if(j && j.url){ location.href=j.url; return; }
       }catch(_){}
