@@ -90,6 +90,7 @@ def extract_city(text: str):
         if m2:
             cand = m2.group(1)
             if cand.lower() == "stockholm":
+                # Sweden — Stockholm, handle English "Stockholm, Sweden"
                 return "Stockholm", "in Stockholm"
             return cand, f"in {cand}"
     if m:
