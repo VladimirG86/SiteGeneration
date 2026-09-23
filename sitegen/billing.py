@@ -56,4 +56,5 @@ def resolve_plan(product_id: str, amount) -> str | None:
 
 def checkout_url(tariff: str, yearly: bool = False) -> str:
     """Заглушка URL для кнопки до подключения Lava — ведёт на секцию цен."""
-    return f"/#prices?tariff={tariff}{"&yearly=1" if yearly else ""}"
+    suffix = "&yearly=1" if yearly else ""
+    return f"/#prices?tariff={tariff}{suffix}"
