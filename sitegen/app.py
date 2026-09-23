@@ -212,6 +212,10 @@ def config():
         "billing_paused": not __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else True,
     }
 
+@app.get("/api/health")
+def health():
+    return {"ok": True, "service": "nelvi", "billing_paused": not __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else True}
+
 @app.get("/api/landing-hero")
 def landing_hero():
     """Для мониторинга: отдаёт hero текущего demo-лендинга (без LLM)."""
