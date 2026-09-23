@@ -207,7 +207,7 @@ def prices(site, s) -> str:
   <ul>{li}</ul>
   <a class="btn{' ghost' if not it.get('featured') else ''}" href="#contacts">{btn}</a>
 </div>""")
-    cls = "c3" if len(cards) >= 3 else "c2"
+    cls = "c4" if len(cards) == 4 else ("c3" if len(cards) == 3 else "c2")
     note = f"<div class='price-note'>{esc(s['note'])}</div>" if s.get("note") else ""
     return f"""
 <section class="section alt" id="prices"><div class="wrap">

@@ -126,6 +126,7 @@ def build_css(mode: str, accent: str) -> str:
     .grid{{display:grid;gap:18px;margin-top:36px}}
     .grid.c3{{grid-template-columns:repeat(3,1fr)}}
     .grid.c2{{grid-template-columns:repeat(2,1fr)}}
+    .grid.c4{{grid-template-columns:repeat(4,1fr)}}
     .card{{background:var(--surface);border:1px solid var(--border);border-radius:16px;
       padding:24px;transition:transform .14s ease,box-shadow .14s ease}}
     .card:hover{{transform:translateY(-2px);box-shadow:var(--shadow)}}
@@ -291,7 +292,7 @@ def build_css(mode: str, accent: str) -> str:
 
     @media(max-width:900px){{
       .hero-grid,.about-grid,.contact-card{{grid-template-columns:1fr}}
-      .grid.c3{{grid-template-columns:repeat(2,1fr)}}
+      .grid.c3,.grid.c4{{grid-template-columns:repeat(2,1fr)}}
       .hero{{padding:64px 0}}
       .hero-art{{min-height:280px}}
       .nav{{display:none}}
@@ -304,7 +305,8 @@ def build_css(mode: str, accent: str) -> str:
       .stats{{grid-template-columns:1fr 1fr}}
     }}
     @media(max-width:560px){{
-      .grid.c3,.grid.c2{{grid-template-columns:1fr}}
+      .grid.c3,.grid.c2,.grid.c4{{grid-template-columns:1fr}}
+      .price-card.featured{{transform:none}}
       .hero-cta .btn{{width:100%}}
     }}
     """

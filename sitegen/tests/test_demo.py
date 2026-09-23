@@ -121,3 +121,10 @@ def test_yearly_price_matters():
     assert billing.price_for("start", yearly=True) == 9900
     assert billing.price_for("free", yearly=True) == 0
 
+
+
+def test_four_prices_render_in_c4_grid():
+    import sections
+    s = {"type": "prices", "title": "T", "items": [{"name": n, "price": "1 ₽", "featured": n == "Pro"} for n in ("Free", "Start", "Pro", "Business")]}
+    html = sections.prices({}, s)
+    assert 'class="grid c4"' in html and html.count("price-card") == 4
