@@ -66,3 +66,13 @@ def limits_for(tariff: str) -> dict:
     return {"title": d["title"], "label": d.get("label",""), "featured": bool(d.get("featured")), "sites": d["sites"], "edits": d["edits"], "domains": d["domain"], "price_m": d["price_m"], "price_y": d["price_y"]}
 
 PAUSED_MSG = "Оплата на паузе до домена — кнопки ведут на #prices"
+
+def config_for_frontend() -> dict:
+    """Конфиг для фронта — тарифы + пауза до домена."""
+    return {
+        "tariffs": list(TARIFFS.keys()),
+        "paused": not is_configured(),
+        "msg": PAUSED_MSG if not is_configured() else "",
+        "limits": {k: limits_for(k) for k in TARIFFS},
+    }
+
