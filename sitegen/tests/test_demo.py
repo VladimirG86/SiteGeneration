@@ -128,3 +128,10 @@ def test_four_prices_render_in_c4_grid():
     s = {"type": "prices", "title": "T", "items": [{"name": n, "price": "1 ₽", "featured": n == "Pro"} for n in ("Free", "Start", "Pro", "Business")]}
     html = sections.prices({}, s)
     assert 'class="grid c4"' in html and html.count("price-card") == 4
+
+
+def test_reviews_have_no_raw_placeholders():
+    import json
+    for about in ("Сервис для создания лендингов без кода", "Кофейня в Казани", "что-то без деталей"):
+        site = demo_content.build_site({"Название": "X", "О бизнесе": about, "Услуги/товары": "", "Преимущества": "", "Дополнительно": ""}, "light", "purple")
+        assert "{city}" not in json.dumps(site, ensure_ascii=False) and "{name}" not in json.dumps(site, ensure_ascii=False), about

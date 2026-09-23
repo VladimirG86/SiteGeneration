@@ -560,6 +560,8 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
             rtext = rtext.format(city=city_suffix, photo=(" и присылали фото" if niche in ("build","auto") else ""))
         # Ensure city is interpolated
         rtext = rtext.replace("{city}", city_suffix).replace("{name}", name)
+        rname = rname.replace("{city}", city_suffix)
+        rmeta = rmeta.replace("{city}", city_suffix)
         reviews_items.append({"name": rname, "meta": rmeta, "text": rtext})
 
     # ---------- faq ---------- (niche-aware)
