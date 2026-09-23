@@ -68,6 +68,7 @@ if not plan: log as unmapped (не гадать!)
 - `POST /api/billing/checkout` → создаёт инвойс в Lava, возвращает `paymentUrl`
 - `POST /api/billing/lava/webhook` → проверяет Basic/X-Api-Key, маппит `amount→tariff`, продлевает `subscriptions` (Postgres/Redis), шлёт 200 даже на неизвестные события (иначе ретраи)
 - `GET /api/billing/me` → текущий тариф, лимиты, остаток правок
+- `GET /api/health` → `{ok, billing_paused, tariffs:{paused, limits}}`, `GET /api/config` → `tariffs_meta` (тот же объект для фронта)
 
 Минималка для теста — 50 ₽/5$/5€, тестовой зоны нет.
 
