@@ -342,7 +342,7 @@ def billing_me(request: Request, email: str = ""):
                 data = json.load(f)
                 return {"tariff": data.get("plan", "free"), "configured": bil.is_configured(), **data}
         except: pass
-    return {"tariff": "free", "configured": bil.is_configured()}
+    return {"tariff": "free", "configured": bil.is_configured(), "paused_until_domain": not bil.is_configured()}
 
 @app.post("/api/analyze")
 def analyze(body: AnalyzeIn, request: Request):
