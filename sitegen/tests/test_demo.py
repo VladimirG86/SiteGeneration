@@ -101,3 +101,9 @@ def test_swedish_phone_preserved():
     site = demo_content.build_site({"Название":"Test","О бизнесе":"Кофейня в Стокгольме","Услуги/товары":"Кофе","Преимущества":"","Дополнительно":"+46 8 123 45 67"}, "light","purple")
     assert "+46" in site["phone"]
 
+def test_nelvi_generic_about_has_free_canvas():
+    site = demo_content.build_site({"Название":"X","О бизнесе":"что-то без деталей","Услуги/товары":"","Преимущества":"","Дополнительно":""}, "light","purple")
+    about = [s for s in site["sections"] if s["type"]=="about"][0]
+    text = " ".join(about.get("paragraphs") or [])
+    assert "свободный канвас" in text.lower()
+
