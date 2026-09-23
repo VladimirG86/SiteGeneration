@@ -1937,6 +1937,17 @@ def index():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
 
 
+@app.get("/landing", response_class=HTMLResponse)
+def landing_page():
+    """Маркетинговый лендинг Nelvi (docs/nelvi-v2.html) — для показа клиентам на стенде."""
+    for cand in (os.path.join(BASE_DIR, "..", "docs", "nelvi-v2.html"),
+                 os.path.join(BASE_DIR, "static", "landing.html")):
+        if os.path.exists(cand):
+            with open(cand, encoding="utf-8") as f:
+                return HTMLResponse(f.read())
+    return HTMLResponse("<h1>Nelvi</h1><p>Лендинг ещё не собран.</p>", status_code=404)
+
+
 if not ADMIN_TOKEN:
     print("[WARN] SITEGEN_ADMIN_TOKEN не задан — /api/leads открыт всем. "
           "Для публичного стенда задайте токен в .env")

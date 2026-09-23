@@ -231,3 +231,9 @@ def test_health(client):
     assert "tariffs" in j
     assert j["tariffs"]["paused"] is True
 
+
+
+def test_landing_page_served(client):
+    r = client.get("/landing")
+    assert r.status_code == 200
+    assert "Nelvi" in r.text and 'id="prices"' in r.text
