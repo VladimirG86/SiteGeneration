@@ -48,6 +48,16 @@ def test_canvas_crud_and_publish(client, tmp_path, monkeypatch):
     # publish
     r=client.post(f"/api/canvas/{jid}/publish")
     assert r.status_code==200
+
+    # zip export
+    r=client.get(f"/api/canvas/{jid}/zip")
+    assert r.status_code==200
+    assert r.headers["content-type"]=="application/zip"
+    # check zip contains index.html and sitemap
+    data=io.BytesIO(r.content)
+    z=zipfile.ZipFile(data)
+    assert "index.html" in z.namelist()
+    assert "sitemap.xml" in z.namelist()
     assert "url" in r.json()
 
     # zip
