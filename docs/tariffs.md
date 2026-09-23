@@ -76,6 +76,9 @@ if not plan: log as unmapped (не гадать!)
 - Под карточками — `Год -20%` свитчер (меняет `amount` на годовой)
 - FAQ: «Можно оплатить из-за границы? — Да, Lava принимает мир»
 
+## Примечание (домена нет)
+Оплата на паузе до домена — `POST /api/billing/checkout` сейчас `503`, кнопки ведут на `#contacts`. Как появится домен — `LAVA_API_KEY` в `EnvironmentFile` + вебхук `https://<домен>/api/billing/lava/webhook`.
+
 ## Следующие шаги
 1) Завести продукт в Lava, дать `offerId` + `LAVA_API_KEY` → я докручу `billing.py` + вебхук.
 2) Решить: оставляем 4 тарифа или схлопываем к твоим 2000 (Free+Pro+Business).
