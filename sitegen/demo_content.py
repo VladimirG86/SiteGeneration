@@ -352,15 +352,16 @@ def build_site(answers: dict, theme_mode: str, accent: str) -> dict:
         snippet = tz_text.strip().split("\n")[0][:180].strip()
         if snippet:
             about_paras.append(f"Важно из ТЗ: {snippet}" + ("…" if len(tz_text) > 180 else ""))
-    about_bullets = extras or bank["extras"][:5]
-    # референсы — добавляем в bullets если есть (до 2)
-    if refs_text:
-        # вытащим до 2 url
-        import re as _re2
-        urls = _re2.findall(r"https?://[^\s,;]+", refs_text)
-        for u in urls[:2]:
-            if len(about_bullets) < 5:
-                about_bullets.append(f"Референс: {u[:60]}")
+    # в буллеты «О нас» не пускаем служебные строки анкеты: URL-референсы
+    # (они для дизайна, не для клиента) и голые прайс-фрагменты вроде «Start 990»
+    def _is_service_line(x: str) -> bool:
+        xl = x.lower()
+        if "http://" in xl or "https://" in xl or xl.startswith(("референс", "тариф")):
+            return True
+        # «Start 990», «Pro 1990 (хит)», «Business 4990. Год -20%»: короткое слово + цена
+        return bool(re.match(r"^[a-zа-яё]{1,12}\s+\d{2,6}(\s*(₽|руб\.?|р\.))?(\s*\(.*?\))?(\.|,|$)", x.strip(), re.I))
+    _raw_extras = [x.strip(" .-–—") for x in re.split(r"[\n;]+|,\s*", a("Дополнительно")) if 3 < len(x.strip()) <= 70]
+    about_bullets = [x for x in _raw_extras if not _is_service_line(x)][:5] or bank["extras"][:5]
 
     # ---------- process ---------- (niche-aware)
     _PROCESS = {

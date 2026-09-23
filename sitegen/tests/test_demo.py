@@ -135,3 +135,13 @@ def test_reviews_have_no_raw_placeholders():
     for about in ("Сервис для создания лендингов без кода", "Кофейня в Казани", "что-то без деталей"):
         site = demo_content.build_site({"Название": "X", "О бизнесе": about, "Услуги/товары": "", "Преимущества": "", "Дополнительно": ""}, "light", "purple")
         assert "{city}" not in json.dumps(site, ensure_ascii=False) and "{name}" not in json.dumps(site, ensure_ascii=False), about
+
+
+def test_about_bullets_skip_refs_and_price_fragments():
+    site = demo_content.build_site({"Название": "N", "О бизнесе": "Сервис для создания лендингов без кода",
+        "Услуги/товары": "Лендинг — 0 ₽", "Преимущества": "",
+        "Дополнительно": "Тарифы: Free 0, Start 990, Pro 1990 (хит), Business 4990. Год -20%\nРеференс: https://tilda.cc\nЗаявки в Telegram"}, "light", "purple")
+    about = [s for s in site["sections"] if s["type"] == "about"][0]
+    joined = " | ".join(about["bullets"])
+    assert "http" not in joined and "Референс" not in joined and "Start 990" not in joined
+    assert "Заявки в Telegram" in joined
