@@ -64,6 +64,9 @@ def validate_url(url: str) -> str:
     host = p.hostname.lower()
     if _is_private_ip(host):
         raise ValueError("Адрес недоступен для импорта")
+    # не импортируем сами себя (петля)
+    if host.endswith("nelvi.app") or host.endswith("nelvi.local"):
+        raise ValueError("Импорт с nelvi.app не поддерживается — используйте создание с нуля")
     # блок .local / .internal
     if host.endswith(".local") or host.endswith(".internal"):
         raise ValueError("Адрес недоступен для импорта")
