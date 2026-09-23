@@ -15,6 +15,10 @@ def test_validate_url_normalizes_and_blocks():
         importer.validate_url("ftp://example.com")
     with pytest.raises(ValueError):
         importer.validate_url("http://test.local")
+    with pytest.raises(ValueError):
+        importer.validate_url("https://demo.nelvi.app/page")
+    with pytest.raises(ValueError):
+        importer.validate_url("https://nelvi.app")
 
 def test_extract_signals_basic():
     html = """<html><head><title>My Shop</title><meta name="description" content="desc here"></head>
