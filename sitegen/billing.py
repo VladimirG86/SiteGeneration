@@ -58,3 +58,9 @@ def checkout_url(tariff: str, yearly: bool = False) -> str:
     """Заглушка URL для кнопки до подключения Lava — ведёт на секцию цен."""
     suffix = "&yearly=1" if yearly else ""
     return f"/#prices?tariff={tariff}{suffix}"
+
+
+def limits_for(tariff: str) -> dict:
+    """Лимиты для фронта — сайты/правки/домены."""
+    d = TARIFFS.get(tariff, TARIFFS["free"])
+    return {"sites": d["sites"], "edits": d["edits"], "domains": d["domain"], "price_m": d["price_m"]}
