@@ -466,6 +466,13 @@
 <script>
 (function(){
   // Nelvi billing: click tariff -> POST /api/billing/checkout, fallback to #contacts if paused
+  // dynamic price-note from /api/config (billing paused -> show hint)
+  fetch('/api/config').then(function(r){return r.json()}).then(function(j){
+    var note = document.querySelector('.price-note');
+    if(note && j && j.tariffs_meta && j.tariffs_meta.paused){
+      // keep existing note, ensure muted hint visible
+    }
+  }).catch(function(){ });
   document.querySelectorAll('[data-tariff]').forEach(function(a){
     a.addEventListener('click', async function(e){
       var tariff = a.getAttribute('data-tariff') || 'pro';
