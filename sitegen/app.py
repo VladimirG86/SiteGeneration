@@ -219,6 +219,128 @@ def landing_hero():
         return {"error": str(e)}
 
 
+# ---------------- billing (Lava.top) ----------------
+class BillingCheckoutIn(BaseModel):
+    tariff: str = Field(default="pro", max_length=20)  # free/start/pro/business
+    yearly: bool = False
+    email: str = Field(default="", max_length=120)
+
+@app.post("/api/billing/checkout")
+def billing_checkout(body: BillingCheckoutIn, request: Request):
+    if _limited(request, "billing"):
+        return _too_many("billing")
+    import billing as bil
+    tariff = (body.tariff or "pro").lower().strip()
+    if tariff not in bil.TARIFFS:
+        return JSONResponse({"error": "unknown tariff"}, status_code=400)
+    email = (body.email or "").strip() or "client@nelvi.app"
+    # free — no payment
+    if tariff == "free" or bil.TARIFFS[tariff]["price_m"] == 0:
+        return {"ok": True, "free": True, "tariff": tariff, "url": "/#prices"}
+    if not bil.is_configured():
+        return JSONResponse({"error": "Lava не настроена — задайте LAVA_API_KEY / LAVA_OFFER_ID в .env"}, status_code=503)
+    amount = bil.price_for(tariff, body.yearly)
+    currency = "RUB"
+    # create lava invoice
+    try:
+        import httpx
+        headers = {"X-Api-Key": bil.LAVA_API_KEY, "Content-Type": "application/json", "Accept": "application/json"}
+        base = str(request.base_url).rstrip("/")
+        # fallback to DOMAIN if available
+        ret_base = f"https://{DOMAIN}" if DOMAIN else base
+        payload = {
+            "email": email,
+            "offerId": bil.LAVA_OFFER_ID,
+            "currency": currency,
+            "amount": amount,
+            "successful_return_url": f"{ret_base}/thanks?tariff={tariff}&status=success",
+            "failure_return_url": f"{ret_base}/pay-failed?tariff={tariff}",
+            "cancel_return_url": f"{ret_base}/checkout?tariff={tariff}",
+        }
+        with httpx.Client(timeout=20.0) as cl:
+            r = cl.post("https://gate.lava.top/api/v3/invoice", json=payload, headers=headers)
+            r.raise_for_status()
+            data = r.json()
+            # lava returns {invoiceId, paymentUrl} or similar — normalize
+            payment_url = data.get("paymentUrl") or data.get("url") or data.get("payment_url") or ""
+            invoice_id = data.get("invoiceId") or data.get("invoice_id") or data.get("id") or ""
+            if not payment_url and invoice_id:
+                payment_url = f"https://pay.lava.top/{invoice_id}"
+            return {"ok": True, "tariff": tariff, "amount": amount, "currency": currency, "invoiceId": invoice_id, "paymentUrl": payment_url, "url": payment_url, "raw": data}
+    except Exception as e:
+        return JSONResponse({"error": f"Lava invoice failed: {e}"}, status_code=502)
+
+@app.post("/api/billing/lava/webhook")
+async def billing_webhook(request: Request):
+    # Lava webhook — Basic или X-Api-Key (настраивается в lava.top), мы принимаем любой и логируем
+    # Должен всегда отвечать 2xx, даже на неизвестные события, иначе ретраи
+    try:
+        body = await request.json()
+    except:
+        body = {}
+    # try to extract product/amount/email
+    # Lava formats vary: check multiple keys
+    product_id = ""
+    amount = ""
+    email = ""
+    status = ""
+    event = body.get("eventType") or body.get("event") or body.get("type") or ""
+    # product
+    prod = body.get("product") or body.get("offer") or {}
+    if isinstance(prod, dict):
+        product_id = str(prod.get("id") or prod.get("productId") or prod.get("offerId") or "")
+    if not product_id:
+        product_id = str(body.get("productId") or body.get("offerId") or "")
+    # amount
+    amount = body.get("amount") or (body.get("contract") or {}).get("amount") or (body.get("invoice") or {}).get("amount") or ""
+    # buyer
+    buyer = body.get("buyer") or body.get("customer") or {}
+    if isinstance(buyer, dict):
+        email = str(buyer.get("email") or "")
+    if not email:
+        email = str(body.get("email") or "")
+    status = str(body.get("status") or body.get("paymentStatus") or "")
+    # log raw
+    try:
+        log_path = os.path.join(BASE_DIR, "billing.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": int(time.time()), "event": event, "product_id": product_id, "amount": amount, "email": email, "status": status, "raw": body}, ensure_ascii=False) + "\n")
+    except: pass
+    # map to plan
+    try:
+        import billing as bil
+        plan = bil.resolve_plan(product_id, amount) if product_id and amount else None
+        # also try case-insensitive / fallback
+        if not plan and product_id:
+            plan = bil.resolve_plan(product_id.lower(), amount)
+        # store subscription stub (file per email)
+        if plan and email and "success" in status.lower() or (plan and event and "success" in event.lower()):
+            try:
+                sub_dir = os.path.join(BASE_DIR, "billing_subs")
+                os.makedirs(sub_dir, exist_ok=True)
+                sub_path = os.path.join(sub_dir, re.sub(r"[^a-z0-9@._-]", "_", email.lower()) + ".json")
+                data = {"email": email, "plan": plan, "amount": amount, "product_id": product_id, "event": event, "ts": int(time.time())}
+                with open(sub_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False)
+            except: pass
+    except: pass
+    return {"ok": True}
+
+@app.get("/api/billing/me")
+def billing_me(request: Request, email: str = ""):
+    email = (email or request.query_params.get("email") or "").strip().lower()
+    if not email:
+        return {"tariff": "free", "configured": False}
+    import billing as bil
+    sub_path = os.path.join(BASE_DIR, "billing_subs", re.sub(r"[^a-z0-9@._-]", "_", email) + ".json")
+    if os.path.exists(sub_path):
+        try:
+            with open(sub_path, encoding="utf-8") as f:
+                data = json.load(f)
+                return {"tariff": data.get("plan", "free"), "configured": bil.is_configured(), **data}
+        except: pass
+    return {"tariff": "free", "configured": bil.is_configured()}
+
 @app.post("/api/analyze")
 def analyze(body: AnalyzeIn, request: Request):
     """После шага «О бизнесе»: определяем нишу и отдаём подсказки-чипы."""

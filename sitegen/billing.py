@@ -16,12 +16,24 @@ TARIFFS = {
     "business": {"title": "Business", "price_m": 4990, "price_y": 39900, "sites": 10_000, "edits": 2000, "domain": 99, "label": "Бизнес"},
 }
 
-# маппинг Lava amount -> tariff:period (важно: период не приходит в вебхуке, маппим по сумме)
-# product_id берётся из app.lava.top после создания продукта с «Цена по запросу API»
-LAVA_OFFER_ID = os.environ.get("LAVA_OFFER_ID", "").strip()
-LAVA_API_KEY  = os.environ.get("LAVA_API_KEY", "").strip()
+# product / offer из https://app.lava.top/products/ecaaca25-df25-4802-85e5-6764dd374f5c/0c6fcc33-81d5-4dc2-a42f-ffed7eef811b (тариф 2000)
+LAVA_PRODUCT_ID = os.environ.get("LAVA_PRODUCT_ID", "ecaaca25-df25-4802-85e5-6764dd374f5c").strip()
+LAVA_OFFER_ID   = os.environ.get("LAVA_OFFER_ID", "0c6fcc33-81d5-4dc2-a42f-ffed7eef811b").strip()
+LAVA_API_KEY    = os.environ.get("LAVA_API_KEY", "").strip()  # не коммитим, задаётся в .env / systemd
+# маппинг amount -> tariff:period (период в вебхуке отсутствует, маппим по сумме — PR #170)
 LAVA_PRODUCTS = {
-    # пример: "836b9fc5-....": {"990": "start:monthly", "9900": "start:yearly", "1990": "pro:monthly", "19900": "pro:yearly", "4990": "business:monthly", "39900": "business:yearly"},
+    LAVA_PRODUCT_ID: {
+        "990": "start:monthly", "9900": "start:yearly",
+        "1990": "pro:monthly", "2000": "pro:monthly", "19900": "pro:yearly", "20000": "pro:yearly",
+        "4990": "business:monthly", "39900": "business:yearly", "49900": "business:yearly",
+        "0": "free:monthly",
+    },
+    # fallback если продукт придёт без дефисов / нижний регистр — дублируем
+    LAVA_PRODUCT_ID.lower(): {
+        "990": "start:monthly", "9900": "start:yearly",
+        "1990": "pro:monthly", "2000": "pro:monthly", "19900": "pro:yearly", "20000": "pro:yearly",
+        "4990": "business:monthly", "39900": "business:yearly",
+    },
 }
 
 def is_configured() -> bool:
