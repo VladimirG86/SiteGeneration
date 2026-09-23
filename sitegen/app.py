@@ -214,7 +214,9 @@ def config():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "nelvi", "billing_paused": not __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else True}
+    import importlib.util as _ilu
+    bil = __import__("billing") if _ilu.find_spec("billing") else None
+    return {"ok": True, "service": "nelvi", "billing_paused": not bil.is_configured() if bil else True, "tariffs": bil.config_for_frontend() if bil else {"paused": True}}
 
 @app.get("/api/landing-hero")
 def landing_hero():
