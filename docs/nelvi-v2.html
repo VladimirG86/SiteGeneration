@@ -413,6 +413,7 @@
   // health check — update price-note if billing active
   fetch('/api/health').then(r=>r.json()).then(j=>{
     if(j && !j.billing_paused){
+      var h=document.getElementById('hero-billing-hint'); if(h) h.style.display='none';
       var n=document.getElementById('price-note');
       if(n) n.innerHTML='Год — −20% (2 месяца в подарок). <span style="color:var(--accent)">Оплата активна — Lava 8%.</span>';
     }
