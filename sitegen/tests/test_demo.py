@@ -119,4 +119,5 @@ def test_yearly_price_matters():
     assert billing.price_for("pro", yearly=False) == 1990
     assert billing.price_for("pro", yearly=True) == 19900
     assert billing.price_for("start", yearly=True) == 9900
+    assert billing.price_for("free", yearly=True) == 0
 
