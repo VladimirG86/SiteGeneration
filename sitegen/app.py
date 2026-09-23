@@ -206,6 +206,8 @@ def config():
         "telegram": tg_on,
         "base_url": BASE_URL,
         "domain": DOMAIN,
+        "billing": __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else False,
+        "billing_offer": __import__("billing").LAVA_OFFER_ID[:8]+"…" if __import__("billing").is_configured() else None,
     }
 
 @app.get("/api/landing-hero")
