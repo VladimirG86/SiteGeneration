@@ -204,7 +204,7 @@ python eval.py --shots           # + скриншоты (нужен playwright +
 
 ```bash
 cp sitegen/.env.example .env   # вписать ключи
-docker compose up --build      # http://localhost:8000
+docker compose up --build      # http://localhost:8000  (/api/health → billing_paused)
 ```
 
 - Данные (`SITEGEN_DATA_DIR`, в контейнере `/data`): сайты, версии, чаты,
