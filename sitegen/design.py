@@ -163,7 +163,7 @@ def build_css(mode: str, accent: str) -> str:
     .price-card li{{display:flex;gap:9px;color:var(--muted);font-family:'Inter',sans-serif;font-size:14px}}
     .price-card li svg{{width:18px;height:18px;color:var(--accent);flex:0 0 auto;margin-top:3px;stroke-width:2}}
     .price-card .btn{{margin-top:auto}}
-    .price-card.featured{{border:1.5px solid var(--accent);position:relative}}
+    .price-card.featured{{border:1.5px solid var(--accent);position:relative;transform:translateY(-4px);box-shadow:0 20px 40px rgba(91,95,239,.18)}}
     .price-card.featured::after{{content:'Популярный';position:absolute;top:-11px;left:20px;
       background:var(--accent);color:#fff;font-family:'Inter',sans-serif;font-size:11px;
       font-weight:700;padding:4px 10px;border-radius:999px}}
