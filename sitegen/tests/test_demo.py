@@ -114,3 +114,9 @@ def test_billing_config_frontend():
     assert "pro" in cfg["limits"]
     assert cfg["limits"]["pro"]["featured"] is True
 
+def test_yearly_price_matters():
+    import billing
+    assert billing.price_for("pro", yearly=False) == 1990
+    assert billing.price_for("pro", yearly=True) == 19900
+    assert billing.price_for("start", yearly=True) == 9900
+
