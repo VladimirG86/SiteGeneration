@@ -208,6 +208,7 @@ def config():
         "domain": DOMAIN,
         "billing": __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else False,
         "billing_offer": __import__("billing").LAVA_OFFER_ID[:8]+"…" if __import__("billing").is_configured() else None,
+        "billing_paused": not __import__("billing").is_configured() if __import__("importlib").util.find_spec("billing") else True,
     }
 
 @app.get("/api/landing-hero")
@@ -241,7 +242,8 @@ def billing_checkout(body: BillingCheckoutIn, request: Request):
     if tariff == "free" or bil.TARIFFS[tariff]["price_m"] == 0:
         return {"ok": True, "free": True, "tariff": tariff, "url": "/#prices"}
     if not bil.is_configured():
-        return JSONResponse({"error": "Lava не настроена — задайте LAVA_API_KEY / LAVA_OFFER_ID в .env"}, status_code=503)
+        # домена нет — оплата на паузе, ведём на #prices (Lava подключится после домена)
+        return {"ok": True, "paused": True, "tariff": tariff, "url": bil.checkout_url(tariff, body.yearly), "msg": bil.PAUSED_MSG}
     amount = bil.price_for(tariff, body.yearly)
     currency = "RUB"
     # create lava invoice

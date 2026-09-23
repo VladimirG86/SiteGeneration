@@ -205,3 +205,16 @@ def test_auth_flow_mocked_smtp(client, monkeypatch):
                        json={"email": "user@mail.ru", "code": code}).status_code == 400
     # плохие email
     assert client.post("/api/auth/code", json={"email": "непочта"}).status_code == 400
+
+def test_billing_checkout_paused(client):
+    # без ключа Lava — должен вернуть paused url, не 503
+    r = client.post("/api/billing/checkout", json={"tariff": "pro"})
+    assert r.status_code == 200
+    j = r.json()
+    assert j.get("paused") is True
+    assert "#prices" in j.get("url","")
+    # config должен отдавать billing_paused
+    rc = client.get("/api/config").json()
+    assert "billing_paused" in rc
+    assert rc["billing_paused"] is True
+
