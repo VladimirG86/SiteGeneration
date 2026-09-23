@@ -68,8 +68,12 @@ def test_hero_fallback_without_advantages():
 def test_tariffs_exposed_in_config(client):
     r=client.get("/api/config")
     assert r.status_code==200
-    assert "tariffs" in r.json()
-    assert "pro" in r.json()["tariffs"]
+    j=r.json()
+    assert "tariffs" in j
+    assert "pro" in j["tariffs"]
+    assert "tariffs_meta" in j
+    assert j["tariffs_meta"]["paused"] is True
+    assert "pro" in j["tariffs_meta"]["limits"]
 
 def test_nelvi_hero_and_niche_regression():
     # регрессия: лендинг + автоматом не должен детектиться как auto, hero не должен обрезаться до 16 симв
