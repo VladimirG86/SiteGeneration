@@ -198,6 +198,7 @@ def config():
         "accents": [{"id": k, "label": v["label"], "hex": v["main"]} for k, v in design.ACCENTS.items()],
         "modes": list(design.MODES),
         "kinds": ["landing", "vcard", "canvas"],
+        "tariffs": ["free","start","pro","business"],
         "s3": s3_on,
         "s3_bucket": s3_bucket,
         "postgres": pg_on,
