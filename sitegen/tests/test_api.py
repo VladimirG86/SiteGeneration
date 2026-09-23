@@ -213,6 +213,9 @@ def test_billing_checkout_paused(client):
     j = r.json()
     assert j.get("paused") is True
     assert "#prices" in j.get("url","")
+    # yearly тоже ведёт на #prices с yearly=1
+    ry = client.post("/api/billing/checkout", json={"tariff": "pro", "yearly": True})
+    assert ry.json().get("url") == "/#prices?tariff=pro&yearly=1"
     # config должен отдавать billing_paused
     rc = client.get("/api/config").json()
     assert "billing_paused" in rc
