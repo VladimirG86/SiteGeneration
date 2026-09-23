@@ -318,7 +318,8 @@
 <section class="section alt" id="services"><div class="wrap">
   <span class="kicker">Услуги</span>
   <h2>Чем мы можем помочь</h2>
-  <div class="grid c3">
+  <div style="display:flex;align-items:center;gap:10px;margin:14px 0 8px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-family:Inter,sans-serif;font-size:14px"><input type="checkbox" id="yearly-toggle"> Год — −20% (2 месяца в подарок)</label></div>
+<div class="grid c3">
 <div class="card">
   <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4L15 12l-3-3 2.7-2.7z"/></svg></div>
   <h3>Free</h3>
@@ -410,6 +411,24 @@
 </div></div>
   <div class='price-note' id='price-note'>Год — −20% (2 месяца в подарок). <span style='color:var(--muted)'>Оплата на паузе до домена — кнопки ведут на заявку, Lava подключим после домена.</span></div>
   <script>
+  // yearly toggle — switch monthly/yearly price
+  (function(){
+    var toggle=document.getElementById('yearly-toggle');
+    if(!toggle) return;
+    var prices={free:['0 ₽','0 ₽'],start:['990 ₽ / мес','9 900 ₽ / год'],pro:['1 990 ₽ / мес','19 900 ₽ / год'],business:['4 990 ₽ / мес','39 900 ₽ / год']};
+    var cards=document.querySelectorAll('.price-card');
+    function update(){
+      var yearly=toggle.checked;
+      cards.forEach(function(c){
+        var h=c.querySelector('h3'); if(!h) return;
+        var key=h.textContent.trim().toLowerCase();
+        var price=c.querySelector('.price'); if(!price) return;
+        var arr=prices[key]; if(!arr) return;
+        price.textContent= yearly? arr[1] : arr[0];
+      });
+    }
+    toggle.addEventListener('change', update);
+  })();
   // health check — update price-note if billing active
   fetch('/api/health').then(r=>r.json()).then(j=>{
     if(j && !j.billing_paused){
