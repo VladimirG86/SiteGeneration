@@ -211,9 +211,8 @@ def config():
 def landing_hero():
     """Для мониторинга: отдаёт hero текущего demo-лендинга (без LLM)."""
     try:
-        import demo_content, json
-        site = demo_content.build_site({"Название":"Nelvi — конструктор сайтов за вечер","О бизнесе":"Сервис для создания лендингов","Услуги/товары":"Лендинг — 0 ₽","Преимущества":"Без кода
-Публикация в 1 клик"}, "light","purple")
+        import demo_content
+        site = demo_content.build_site({"Название":"Nelvi — конструктор сайтов за вечер","О бизнесе":"Сервис для создания лендингов","Услуги/товары":"Лендинг — 0 ₽","Преимущества":"Без кода\nПубликация в 1 клик"}, "light","purple")
         hero = [s for s in site["sections"] if s["type"]=="hero"][0]
         return {"title": hero["title"], "niche": site.get("niche"), "stats": hero.get("stats")}
     except Exception as e:
