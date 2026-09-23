@@ -62,7 +62,7 @@ AUTH_CODE_TTL = 600       # код живёт 10 минут
 AUTH_RESEND_COOLDOWN = 44  # как таймер на фронте
 AUTH_MAX_FAILS = 5
 
-app = FastAPI(title="SiteGen prototype")
+app = FastAPI(title="Nelvi — конструктор сайтов за вечер")
 
 
 def auth_enabled() -> bool:
