@@ -228,4 +228,6 @@ def test_health(client):
     assert j["ok"] is True
     assert j["service"] == "nelvi"
     assert "billing_paused" in j
+    assert "tariffs" in j
+    assert j["tariffs"]["paused"] is True
 
