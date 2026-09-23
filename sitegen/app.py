@@ -199,6 +199,7 @@ def config():
         "modes": list(design.MODES),
         "kinds": ["landing", "vcard", "canvas"],
         "tariffs": ["free","start","pro","business"],
+        "tariffs_meta": __import__("billing").config_for_frontend() if __import__("importlib").util.find_spec("billing") else {"tariffs": ["free","start","pro","business"], "paused": True},
         "s3": s3_on,
         "s3_bucket": s3_bucket,
         "postgres": pg_on,
