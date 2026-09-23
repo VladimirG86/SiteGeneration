@@ -107,3 +107,10 @@ def test_nelvi_generic_about_has_free_canvas():
     text = " ".join(about.get("paragraphs") or [])
     assert "свободный канвас" in text.lower()
 
+def test_billing_config_frontend():
+    import billing
+    cfg = billing.config_for_frontend()
+    assert cfg["paused"] is True
+    assert "pro" in cfg["limits"]
+    assert cfg["limits"]["pro"]["featured"] is True
+
