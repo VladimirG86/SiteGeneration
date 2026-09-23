@@ -186,13 +186,25 @@ ADV_DESC = [
 
 
 def _adv_item(text: str, i: int):
+    text = (text or "").strip()
     title = text[0].upper() + text[1:]
-    title = title if len(title) <= 46 else title[:44].rstrip(" ,.") + "…"
-    desc = "Проверено на реальных заказах — спросите наших клиентов."
-    for pat, d in ADV_DESC:
-        if re.search(pat, text.lower()):
-            desc = d
-            break
+    desc = None
+    # «Заголовок — пояснение» / «Заголовок: пояснение» → не режем хвост, а уносим его в описание
+    m = re.match(r"^(.{6,60}?)\s*[—–:]\s+(.{8,})$", title)
+    if m and len(m.group(1)) <= 46:
+        title, desc = m.group(1).rstrip(" ,."), m.group(2).strip()
+        desc = desc[0].upper() + desc[1:]
+        if not desc.endswith((".", "!", "?")):
+            desc += "."
+    if len(title) > 46:
+        cut = title[:46].rsplit(" ", 1)[0].rstrip(" ,.")
+        title = (cut if len(cut) >= 20 else title[:44].rstrip(" ,.")) + "…"
+    if not desc:
+        desc = "Проверено на реальных заказах — спросите наших клиентов."
+        for pat, d in ADV_DESC:
+            if re.search(pat, text.lower()):
+                desc = d
+                break
     return {"title": title, "desc": desc}
 
 

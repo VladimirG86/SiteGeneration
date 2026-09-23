@@ -145,3 +145,13 @@ def test_about_bullets_skip_refs_and_price_fragments():
     joined = " | ".join(about["bullets"])
     assert "http" not in joined and "Референс" not in joined and "Start 990" not in joined
     assert "Заявки в Telegram" in joined
+
+
+def test_adv_item_splits_dash_into_title_and_desc():
+    it = demo_content._adv_item("Импорт любого сайта по ссылке — клонируем и правим чатом", 0)
+    assert it["title"] == "Импорт любого сайта по ссылке"
+    assert it["desc"] == "Клонируем и правим чатом."
+    it = demo_content._adv_item("Гарантия 12 месяцев", 1)
+    assert it["title"] == "Гарантия 12 месяцев" and "…" not in it["title"]
+    long = demo_content._adv_item("Очень длинное преимущество без разделителя которое надо аккуратно обрезать по слову", 2)
+    assert long["title"].endswith("…") and " " in long["title"] and len(long["title"]) <= 47
