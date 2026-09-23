@@ -221,3 +221,11 @@ def test_billing_checkout_paused(client):
     assert "billing_paused" in rc
     assert rc["billing_paused"] is True
 
+def test_health(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["ok"] is True
+    assert j["service"] == "nelvi"
+    assert "billing_paused" in j
+
