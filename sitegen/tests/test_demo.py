@@ -65,6 +65,12 @@ def test_hero_fallback_without_advantages():
     assert hero["title"] and len(hero["title"])<=70
     assert len(hero.get("stats",[]))==3
 
+def test_tariffs_exposed_in_config(client):
+    r=client.get("/api/config")
+    assert r.status_code==200
+    assert "tariffs" in r.json()
+    assert "pro" in r.json()["tariffs"]
+
 def test_nelvi_hero_and_niche_regression():
     # регрессия: лендинг + автоматом не должен детектиться как auto, hero не должен обрезаться до 16 симв
     site=demo_content.build_site({"Название":"Nelvi — конструктор сайтов за вечер","О бизнесе":"Сервис для создания лендингов, QR-визиток и свободных канвасов без кода. Собирай страницы блоками, публикуй в один клик, принимай заявки и не думай про хостинг, домен и SSL.","Услуги/товары":"Лендинг за 5 минут — от 0 ₽\nQR-визитка — Taplink\nСвободный канвас — как в Tilda","Преимущества":"Без кода и дизайнеров — как конструктор\nПубликация в 1 клик — поддомен и SSL автоматом\nИмпорт любого сайта по ссылке — клонируем и правим чатом","Дополнительно":""}, "light","purple")
