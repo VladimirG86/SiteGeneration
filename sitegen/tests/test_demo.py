@@ -83,3 +83,13 @@ def test_nelvi_hero_and_niche_regression():
         assert len(st["label"]) > 16
         assert "Без кода и дизай" not in st["value"]  # старый баг adv[:16]
 
+def test_billing_limits():
+    import billing
+    pro = billing.limits_for("pro")
+    assert pro["price_m"] == 1990
+    assert pro["featured"] is True
+    assert pro["sites"] == 20
+    assert billing.limits_for("free")["price_m"] == 0
+    assert billing.checkout_url("pro") == "/#prices?tariff=pro"
+    assert billing.checkout_url("pro", yearly=True) == "/#prices?tariff=pro&yearly=1"
+
